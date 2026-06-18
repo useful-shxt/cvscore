@@ -289,6 +289,7 @@ Return this exact JSON:
         createdAt: s.createdAt?.toISOString() || new Date().toISOString(),
         keywords: s.keywords ? JSON.parse(s.keywords) : null,
         topActions: s.actions ? JSON.parse(s.actions) : [],
+        categories: s.categories ? (JSON.parse(s.categories) as { name: string; score: number; feedback: string; suggestion: string }[]).map(c => ({ name: c.name, score: c.score })) : null,
       }));
       res.json({ entries });
     } catch (err: any) {

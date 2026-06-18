@@ -456,19 +456,132 @@ function LinkedInPanel({ analysis, cvProvided }: { analysis: LinkedInAnalysisRes
 }
 
 // ─── JD Tracker Panel ─────────────────────────────────────────────────────────
+function TrackerInsights({ entries }: { entries: TrackerEntry[] }) {
+  if (entries.length < 2) return null;
+
+  // Consistent weakness across sessions
+  const allCats = entries.flatMap(e => e.categories || []);
+  const catTotals: Record<string, { total: number; count: number }> = {};
+  for (const c of allCats) {
+    if (!catTotals[c.name]) catTotals[c.name] = { total: 0, count: 0 };
+    catTotals[c.name].total += c.score;
+    catTotals[c.name].count += 1;
+  }
+  const catAvgs = Object.entries(catTotals)
+    .filter(([, v]) => v.count >= 2)
+    .map(([name, v]) => ({ name, avg: Math.round(v.total / v.count) }))
+    .sort((a, b) => a.avg - b.avg);
+  const weakest = catAvgs[0] || null;
+  const strongest = catAvgs[catAvgs.length - 1] || null;
+
+  // Recurring missing keywords (appear in 2+ sessions)
+  const kwCounts: Record<string, number> = {};
+  for (const e of entries) {
+    const missing = e.keywords?.missing || [];
+    const seen = new Set<string>();
+    for (const kw of missing) {
+      const key = kw.toLowerCase();
+      if (!seen.has(key)) {
+        kwCounts[key] = (kwCounts[key] || 0) + 1;
+        seen.add(key);
+      }
+    }
+  }
+  const recurringKws = Object.entries(kwCounts)
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([kw, count]) => ({ kw, count }));
+
+  // Score trend (oldest to newest)
+  const scores = [...entries].reverse().map(e => e.score);
+  const trend = scores.length >= 2 ? scores[scores.length - 1] - scores[0] : 0;
+
+  if (!weakest && recurringKws.length === 0) return null;
+
+  return (
+    <div className="space-y-3 mb-4">
+      {/* Score trend bar chart */}
+      {scores.length >= 2 && (
+        <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-4">
+          <p className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-3">Score Trend</p>
+          <div className="flex items-end gap-2 h-12">
+            {scores.map((s, i) => {
+              const col = s >= 75 ? "#10B981" : s >= 50 ? "#F59E0B" : "#EF4444";
+              const height = Math.max(20, Math.round((s / 100) * 48));
+              return (
+                <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                  <span className="text-[10px] font-bold" style={{ color: col }}>{s}</span>
+                  <div className="w-full rounded-sm" style={{ height, background: col, opacity: i === scores.length - 1 ? 1 : 0.4 }} />
+                </div>
+              );
+            })}
+          </div>
+          {trend !== 0 && (
+            <p className="text-xs mt-2" style={{ color: trend > 0 ? "#10B981" : "#EF4444" }}>
+              {trend > 0 ? `↑ Up ${trend} points` : `↓ Down ${Math.abs(trend)} points`} since your first score
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Consistent weakness */}
+      {weakest && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-base flex-shrink-0">⚠️</span>
+            <div>
+              <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-1">Consistent weakness</p>
+              <p className="text-sm text-white">
+                <strong>{weakest.name}</strong> averages{" "}
+                <strong style={{ color: weakest.avg >= 75 ? "#10B981" : weakest.avg >= 50 ? "#F59E0B" : "#EF4444" }}>
+                  {weakest.avg}/100
+                </strong>{" "}
+                across your last {entries.length} scores — this is a CV-level issue, not role-specific.
+              </p>
+              {strongest && strongest.name !== weakest.name && (
+                <p className="text-xs text-white/40 mt-1">
+                  Strongest: <strong className="text-white/60">{strongest.name}</strong> ({strongest.avg}/100)
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recurring keyword gaps */}
+      {recurringKws.length > 0 && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+          <p className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">CV gaps — missing across multiple roles</p>
+          <p className="text-xs text-white/40 mb-3">These keywords are absent from your CV itself. Adding them will improve every future score.</p>
+          <div className="flex flex-wrap gap-2">
+            {recurringKws.map(({ kw, count }) => (
+              <span key={kw} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 border border-red-500/25 text-red-300">
+                {kw}
+                <span className="text-red-400/60 text-[10px]">×{count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrackerPanel({ entries, onSelect }: { entries: TrackerEntry[]; onSelect: (e: TrackerEntry) => void }) {
   if (entries.length === 0) {
     return (
       <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-10 text-center space-y-3">
         <p className="text-sm font-semibold text-white">No applications tracked yet</p>
-        <p className="text-xs text-[#8895B3]">Score a role and it will appear here. Up to 5 saved automatically.</p>
+        <p className="text-xs text-white/40">Score a role and it will appear here. Up to 5 saved automatically.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">{entries.length} Application{entries.length > 1 ? "s" : ""} Tracked</p>
+      <TrackerInsights entries={entries} />
+      <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">{entries.length} Application{entries.length > 1 ? "s" : ""} Tracked</p>
       {entries.map((entry) => {
         const color = entry.score >= 75 ? "#10B981" : entry.score >= 50 ? "#F59E0B" : "#EF4444";
         const date = new Date(entry.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
@@ -482,23 +595,24 @@ function TrackerPanel({ entries, onSelect }: { entries: TrackerEntry[]; onSelect
             <MiniScoreRing score={entry.score} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">{entry.jobTitle}</p>
-              <p className="text-xs text-[#8895B3] truncate">{entry.companyName}</p>
-              <p className="text-xs text-[#8895B3] mt-0.5">{date}</p>
+              <p className="text-xs text-white/40 truncate">{entry.companyName}</p>
+              <p className="text-xs text-white/30 mt-0.5">{date}</p>
             </div>
             <div className="text-right flex-shrink-0">
               <p className="text-lg font-bold" style={{ color }}>{entry.score}</p>
-              <p className="text-xs text-[#8895B3]">/ 100</p>
+              <p className="text-xs text-white/40">/ 100</p>
             </div>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-[#8895B3] group-hover:text-blue-400 transition-colors flex-shrink-0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white/30 group-hover:text-blue-400 transition-colors flex-shrink-0">
               <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
         );
       })}
-      <p className="text-xs text-[#8895B3] text-center">Your last {entries.length} scored application{entries.length > 1 ? "s" : ""} · Auto-saved</p>
+      <p className="text-xs text-white/30 text-center">Your last {entries.length} scored application{entries.length > 1 ? "s" : ""} · Auto-saved</p>
     </div>
   );
 }
+
 
 // ─── Email sent badge ──────────────────────────────────────────────────────────
 function EmailSentBadge({ email }: { email: string }) {
