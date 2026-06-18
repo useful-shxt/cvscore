@@ -1,23 +1,28 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import type { FastScoreResult } from "@shared/schema";
 
-// In production: swap for SendGrid/Resend/SES transporter
-// For now: uses SMTP env vars (works with Gmail App Password, Resend SMTP, etc.)
-function getTransporter() {
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const host = process.env.SMTP_HOST || "smtp.gmail.com";
-  const port = parseInt(process.env.SMTP_PORT || "465");
-
-  if (!user || !pass) {
-    console.warn("[email] SMTP not configured — emails will be skipped");
+function getResend() {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) {
+    console.warn("[email] RESEND_API_KEY not set — emails will be skipped");
     return null;
   }
-
-  return nodemailer.createTransport({ host, port, secure: true, auth: { user, pass } });
+  return new Resend(key);
 }
 
-const FROM = process.env.SMTP_FROM || `CVScore <${process.env.SMTP_USER || "hello@cvscore.app"}>`;
+const FROM = process.env.SMTP_FROM || "CVScore <onboarding@resend.dev>";
+
+async function sendEmail(to: string, subject: string, html: string) {
+  const resend = getResend();
+  if (!resend) return;
+  try {
+    await resend.emails.send({ from: FROM, to, subject, html });
+    console.log(`[email] Sent "${subject}" to ${to}`);
+  } catch (err) {
+    console.error(`[email] Failed to send "${subject}" to ${to}:`, err);
+  }
+}
+
 
 function scoreColor(score: number) {
   if (score >= 75) return "#10B981";
@@ -39,8 +44,6 @@ export async function sendScoreEmail(
   sessionId: string,
   isNew: boolean
 ) {
-  const transporter = getTransporter();
-  if (!transporter) return;
 
   const color = scoreColor(result.overallScore);
   const label = scoreLabel(result.overallScore);
@@ -128,23 +131,11 @@ export async function sendScoreEmail(
 </body>
 </html>`;
 
-  try {
-    await transporter.sendMail({
-      from: FROM,
-      to,
-      subject: `Your CV scored ${result.overallScore}/100 — ${label}`,
-      html,
-    });
-    console.log(`[email] Score email sent to ${to}`);
-  } catch (err) {
-    console.error(`[email] Failed to send score email:`, err);
-  }
+  await sendEmail(to, `Your CV scored ${result.overallScore}/100 — ${label}`, html);
 }
 
 // ─── Welcome email (new user) ────────────────────────────────────────────────
 export async function sendWelcomeEmail(to: string, name: string) {
-  const transporter = getTransporter();
-  if (!transporter) return;
 
   const html = `
 <!DOCTYPE html>
@@ -188,23 +179,11 @@ export async function sendWelcomeEmail(to: string, name: string) {
 </body>
 </html>`;
 
-  try {
-    await transporter.sendMail({
-      from: FROM,
-      to,
-      subject: `Welcome to CVScore, ${name} — your free access is live`,
-      html,
-    });
-    console.log(`[email] Welcome email sent to ${to}`);
-  } catch (err) {
-    console.error(`[email] Failed to send welcome email:`, err);
-  }
+  await sendEmail(to, `Welcome to CVScore, ${name} — your free access is live`, html);
 }
 
 // ─── Re-engagement: rewrite ready ─────────────────────────────────────────────
 export async function sendRewriteReadyEmail(to: string, name: string, jobTitle?: string) {
-  const transporter = getTransporter();
-  if (!transporter) return;
 
   const html = `
 <!DOCTYPE html>
@@ -230,23 +209,11 @@ export async function sendRewriteReadyEmail(to: string, name: string, jobTitle?:
 </body>
 </html>`;
 
-  try {
-    await transporter.sendMail({
-      from: FROM,
-      to,
-      subject: `Your optimised CV is ready — copy it now`,
-      html,
-    });
-    console.log(`[email] Rewrite ready email sent to ${to}`);
-  } catch (err) {
-    console.error(`[email] Failed to send rewrite email:`, err);
-  }
+  await sendEmail(to, `Your optimised CV is ready — copy it now`, html);
 }
 
 // ─── Re-engagement: weekly nudge (for cron) ───────────────────────────────────
 export async function sendWeeklyNudge(to: string, name: string, lastScore: number) {
-  const transporter = getTransporter();
-  if (!transporter) return;
 
   const html = `
 <!DOCTYPE html>
@@ -266,16 +233,7 @@ export async function sendWeeklyNudge(to: string, name: string, lastScore: numbe
 </body>
 </html>`;
 
-  try {
-    await transporter.sendMail({
-      from: FROM,
-      to,
-      subject: `Time to beat ${lastScore}/100 — re-score your CV`,
-      html,
-    });
-  } catch (err) {
-    console.error(`[email] Failed to send nudge:`, err);
-  }
+  await sendEmail(to, `Time to beat ${lastScore}/100 — re-score your CV`, html);
 }
 
 // ─── Weekly personalised nudge ─────────────────────────────────────────────────
@@ -292,8 +250,6 @@ interface WeeklyNudgeData {
 }
 
 export async function sendPersonalisedWeeklyNudge(to: string, data: WeeklyNudgeData) {
-  const transporter = getTransporter();
-  if (!transporter) return;
 
   const color = scoreColor(data.score);
   const label = scoreLabel(data.score);
@@ -404,7 +360,7 @@ export async function sendPersonalisedWeeklyNudge(to: string, data: WeeklyNudgeD
 </html>`;
 
   try {
-    await transporter.sendMail({ from: FROM, to, subject, html });
+    await sendEmail(to, subject, html);
     console.log(`[email] Weekly nudge sent to ${to}`);
   } catch (err) {
     console.error(`[email] Weekly nudge failed for ${to}:`, err);
