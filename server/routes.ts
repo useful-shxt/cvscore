@@ -78,7 +78,34 @@ async function callPerplexity(
 }
 
 function extractJSON(raw: string): string {
-  return raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```\s*$/m, "").trim();
+  let s = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```\s*$/m, "").trim();
+  // Find outermost JSON object or array
+  const objStart = s.indexOf("{");
+  const arrStart = s.indexOf("[");
+  const start = objStart === -1 ? arrStart : arrStart === -1 ? objStart : Math.min(objStart, arrStart);
+  if (start > 0) s = s.slice(start);
+  const lastObj = s.lastIndexOf("}");
+  const lastArr = s.lastIndexOf("]");
+  const end = Math.max(lastObj, lastArr);
+  if (end !== -1 && end < s.length - 1) s = s.slice(0, end + 1);
+  // Remove trailing commas before ] or }
+  s = s.replace(/,\s*([\]}])/g, "$1");
+  return s;
+}
+
+function extractJobTitle(jd: string): string | null {
+  const lines = jd.split("\n").slice(0, 10).map(l => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    if (line.length > 3 && line.length < 80 && !line.includes("http") && !line.includes("@")) {
+      return line.replace(/[^a-zA-Z0-9 &,\-\/]/g, "").trim().slice(0, 60) || null;
+    }
+  }
+  return null;
+}
+
+function extractCompanyName(jd: string): string | null {
+  const match = jd.match(/(?:at|@|join|company[:\s]+)\s+([A-Z][a-zA-Z0-9 &,.'-]{1,40})/m);
+  return match ? match[1].trim().slice(0, 40) : null;
 }
 
 export async function registerRoutes(httpServer: Server, app: Express) {
@@ -319,8 +346,8 @@ Return this exact JSON:
         userId: userId || null,
         cvText,
         jdText,
-        jobTitle: jobTitle || null,
-        companyName: companyName || null,
+        jobTitle: jobTitle || extractJobTitle(jdText) || null,
+        companyName: companyName || extractCompanyName(jdText) || null,
         score: parsed.overallScore,
         categories: JSON.stringify(parsed.categories),
         keywords: JSON.stringify(parsed.keywords),
@@ -430,17 +457,9 @@ Return this exact JSON:
   "extras": ["<certification or notable item>"]
 }`;
 
-      const [rewriteRaw, companyRaw] = await Promise.all([
-        callPerplexity("sonar-pro", [
-          { role: "system", content: "You are an expert CV writer. Return valid JSON only." },
-          { role: "user", content: prompt },
-        ]),
-        companyIntel
-          ? Promise.resolve(companyIntel)
-          : callPerplexity("sonar", [
-              { role: "system", content: "You are a research assistant. Be concise." },
-              { role: "user", content: `Search the web and provide a brief 3-4 sentence overview of the company in this JD.\n\nJOB DESCRIPTION:\n${jdText.slice(0, 1000)}` },
-            ], 3, true),
+      const rewriteRaw = await callPerplexity("sonar-pro", [
+        { role: "system", content: "You are an expert CV writer. Return valid JSON only." },
+        { role: "user", content: prompt },
       ]);
 
       const rewrite = JSON.parse(extractJSON(rewriteRaw));
@@ -448,7 +467,6 @@ Return this exact JSON:
       if (sessionId && typeof sessionId === "string") {
         await storage.updateSession(sessionId, {
           rewrite: JSON.stringify(rewrite),
-          companyIntel: typeof companyRaw === "string" ? companyRaw : null,
         });
       }
 
@@ -457,7 +475,7 @@ Return this exact JSON:
         if (user) sendRewriteReadyEmail(user.email, user.name).catch(() => {});
       }
 
-      res.json({ rewrite, companyIntel: companyRaw });
+      res.json({ rewrite });
     } catch (err: any) {
       console.error("Rewrite error:", err);
       res.status(500).json({ error: err.message });
