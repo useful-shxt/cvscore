@@ -17,7 +17,7 @@ function getTransporter() {
   return nodemailer.createTransport({ host, port, secure: false, auth: { user, pass } });
 }
 
-const FROM = process.env.SMTP_FROM || "CVScore <hello@cvscore.app>";
+const FROM = process.env.SMTP_FROM || `CVScore <${process.env.SMTP_USER || "hello@cvscore.app"}>`;
 
 function scoreColor(score: number) {
   if (score >= 75) return "#10B981";
@@ -138,6 +138,66 @@ export async function sendScoreEmail(
     console.log(`[email] Score email sent to ${to}`);
   } catch (err) {
     console.error(`[email] Failed to send score email:`, err);
+  }
+}
+
+// ─── Welcome email (new user) ────────────────────────────────────────────────
+export async function sendWelcomeEmail(to: string, name: string) {
+  const transporter = getTransporter();
+  if (!transporter) return;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#080D1A;font-family:Inter,system-ui,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:32px 16px;">
+    <div style="margin-bottom:24px;">
+      <span style="font-size:20px;font-weight:700;color:#F0F4FF;">CV</span><span style="font-size:20px;font-weight:700;color:#3B82F6;">Score</span>
+    </div>
+    <p style="color:#F0F4FF;font-size:22px;font-weight:700;margin:0 0 12px;">Welcome to CVScore, ${name} 👋</p>
+    <p style="color:#8895B3;font-size:14px;line-height:1.7;margin:0 0 24px;">
+      You've just unlocked free access to AI-powered CV scoring, company intel, LinkedIn analysis, and full CV rewrites — all free until <strong style="color:#F0F4FF;">29 July 2026</strong>.
+    </p>
+    <div style="background:#0F1629;border:1px solid #2A3558;border-radius:16px;padding:24px;margin-bottom:20px;">
+      <p style="color:#A8B8D0;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 14px;">What you can do right now</p>
+      ${[
+        { icon: "📊", title: "Score your CV", desc: "ATS keyword match against any job description — instant results" },
+        { icon: "🔍", title: "Company Intel", desc: "Auto-fetches company culture, news, and hiring signals from your JD" },
+        { icon: "✍️", title: "CV Rewrite", desc: "Fully rewritten, ATS-optimised version tailored to the role" },
+        { icon: "💼", title: "Cover Letters", desc: "3 tones — Direct, Warm, and Strategic — all ready to copy" },
+        { icon: "🔗", title: "LinkedIn Analyser", desc: "Score your LinkedIn profile against the same JD" },
+      ].map(f => `
+        <div style="display:flex;gap:12px;margin-bottom:14px;align-items:flex-start;">
+          <span style="font-size:18px;flex-shrink:0;">${f.icon}</span>
+          <div>
+            <p style="color:#F0F4FF;font-size:13px;font-weight:600;margin:0 0 2px;">${f.title}</p>
+            <p style="color:#8895B3;font-size:12px;margin:0;">${f.desc}</p>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+    <div style="text-align:center;margin-bottom:28px;">
+      <a href="${process.env.APP_URL || "https://cvscore.usefulshxt.com"}" style="display:inline-block;background:#3B82F6;color:#fff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Start Scoring My CV</a>
+    </div>
+    <div style="background:#10B98110;border:1px solid #10B98130;border-radius:12px;padding:16px;margin-bottom:24px;text-align:center;">
+      <p style="color:#10B981;font-size:13px;font-weight:600;margin:0 0 4px;">🎉 Free early access window open</p>
+      <p style="color:#8895B3;font-size:12px;margin:0;">Everything is free until 29 July 2026. No credit card needed.</p>
+    </div>
+    <p style="color:#8895B3;font-size:11px;text-align:center;margin:0;">You're receiving this because you signed up to CVScore. <a href="#" style="color:#3B82F6;">Unsubscribe</a></p>
+  </div>
+</body>
+</html>`;
+
+  try {
+    await transporter.sendMail({
+      from: FROM,
+      to,
+      subject: `Welcome to CVScore, ${name} — your free access is live`,
+      html,
+    });
+    console.log(`[email] Welcome email sent to ${to}`);
+  } catch (err) {
+    console.error(`[email] Failed to send welcome email:`, err);
   }
 }
 

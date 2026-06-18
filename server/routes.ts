@@ -3,7 +3,7 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { nanoid } from "nanoid";
 import multer from "multer";
-import { sendScoreEmail, sendRewriteReadyEmail } from "./email";
+import { sendScoreEmail, sendRewriteReadyEmail, sendWelcomeEmail } from "./email";
 import type { FastScoreResult } from "@shared/schema";
 import { execFileSync } from "child_process";
 import { writeFileSync, unlinkSync, existsSync } from "fs";
@@ -105,6 +105,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
       if (!user) {
         user = await storage.createUser({ id: nanoid(), email: normalised, name: name.trim(), runCount: 0 });
+        sendWelcomeEmail(normalised, name.trim()).catch(() => {});
       } else {
         await storage.touchLastSeen(user.id);
       }
