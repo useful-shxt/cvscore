@@ -182,6 +182,33 @@ export const storage = {
     if (error) throw error;
   },
 
+  // Returns all users active in last N days, with their most recent scored session
+  async getActiveUsersWithLastSession(daysSince: number): Promise<{ user: User; session: Session }[]> {
+    const since = new Date(Date.now() - daysSince * 24 * 60 * 60 * 1000).toISOString();
+    const { data: users, error: userErr } = await supabase
+      .from("users")
+      .select("*")
+      .gte("last_seen_at", since);
+    if (userErr) throw userErr;
+    if (!users || users.length === 0) return [];
+
+    const results: { user: User; session: Session }[] = [];
+    for (const u of users) {
+      const { data: sessions, error: sessErr } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("user_id", u.id)
+        .not("score", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (sessErr) continue;
+      if (sessions && sessions.length > 0) {
+        results.push({ user: mapUser(u), session: mapSession(sessions[0]) });
+      }
+    }
+    return results;
+  },
+
   async getRecentSessionsByUser(userId: string, limit: number): Promise<Session[]> {
     const { data, error } = await supabase
       .from("sessions")

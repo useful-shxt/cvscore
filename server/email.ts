@@ -277,3 +277,136 @@ export async function sendWeeklyNudge(to: string, name: string, lastScore: numbe
     console.error(`[email] Failed to send nudge:`, err);
   }
 }
+
+// ─── Weekly personalised nudge ─────────────────────────────────────────────────
+interface WeeklyNudgeData {
+  name: string;
+  score: number;
+  jobTitle: string | null;
+  companyName: string | null;
+  weakestCategory: { name: string; score: number; feedback: string; suggestion: string } | null;
+  missingKeywords: string[];
+  topAction: string | null;
+  daysSinceLastScore: number;
+  totalRuns: number;
+}
+
+export async function sendPersonalisedWeeklyNudge(to: string, data: WeeklyNudgeData) {
+  const transporter = getTransporter();
+  if (!transporter) return;
+
+  const color = scoreColor(data.score);
+  const label = scoreLabel(data.score);
+  const appUrl = process.env.APP_URL || "https://cvscore.usefulshxt.com";
+
+  // Personalised subject line based on score band
+  let subject: string;
+  if (data.score >= 75) {
+    subject = `${data.name}, you're at ${data.score}/100 — here's how to hit 90+`;
+  } else if (data.score >= 50) {
+    subject = `${data.name}, your CV is a Good Start — 3 tweaks to get you shortlisted`;
+  } else {
+    subject = `${data.name}, your CV scored ${data.score}/100 — let's fix that this week`;
+  }
+
+  // Personalised tip based on weakest area
+  const tipSection = data.weakestCategory ? `
+    <div style="background:#0F1629;border-left:3px solid #3B82F6;border-radius:0 12px 12px 0;padding:20px;margin-bottom:16px;">
+      <p style="color:#A8B8D0;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 8px;">This week's tip — ${data.weakestCategory.name} (${data.weakestCategory.score}/100)</p>
+      <p style="color:#F0F4FF;font-size:14px;line-height:1.6;margin:0 0 8px;">${data.weakestCategory.feedback}</p>
+      <p style="color:#3B82F6;font-size:13px;font-weight:600;margin:0;">→ ${data.weakestCategory.suggestion}</p>
+    </div>
+  ` : "";
+
+  // Missing keywords section
+  const keywordsSection = data.missingKeywords.length > 0 ? `
+    <div style="background:#EF444408;border:1px solid #EF444425;border-radius:12px;padding:16px;margin-bottom:16px;">
+      <p style="color:#EF4444;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 10px;">Still missing from your CV</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${data.missingKeywords.slice(0, 8).map(kw => `
+          <span style="display:inline-block;padding:3px 10px;background:#EF444415;border:1px solid #EF444430;border-radius:100px;color:#EF4444;font-size:12px;">${kw}</span>
+        `).join("")}
+        ${data.missingKeywords.length > 8 ? `<span style="color:#8895B3;font-size:12px;align-self:center;">+${data.missingKeywords.length - 8} more</span>` : ""}
+      </div>
+      <p style="color:#8895B3;font-size:12px;margin:10px 0 0;">Adding these naturally into your CV can meaningfully increase your score and ATS pass rate.</p>
+    </div>
+  ` : "";
+
+  // Role context
+  const roleContext = (data.jobTitle || data.companyName)
+    ? `<p style="color:#8895B3;font-size:13px;margin:0 0 20px;">Last scored against: <strong style="color:#F0F4FF;">${[data.jobTitle, data.companyName].filter(Boolean).join(" at ")}</strong></p>`
+    : "";
+
+  // Streak / engagement line
+  const streakLine = data.totalRuns > 1
+    ? `<p style="color:#8895B3;font-size:12px;margin:0 0 4px;">You've scored ${data.totalRuns} role${data.totalRuns > 1 ? "s" : ""} so far — keep the momentum going.</p>`
+    : `<p style="color:#8895B3;font-size:12px;margin:0 0 4px;">You're just getting started — the more you score, the sharper your CV gets.</p>`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#080D1A;font-family:Inter,system-ui,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:32px 16px;">
+
+    <!-- Header -->
+    <div style="margin-bottom:28px;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <span style="font-size:20px;font-weight:700;color:#F0F4FF;">CV</span><span style="font-size:20px;font-weight:700;color:#3B82F6;">Score</span>
+      </div>
+      <span style="font-size:11px;color:#8895B3;">Weekly update</span>
+    </div>
+
+    <!-- Score hero -->
+    <div style="background:#0F1629;border:1px solid #2A3558;border-radius:16px;padding:24px;margin-bottom:20px;text-align:center;">
+      <p style="color:#8895B3;font-size:13px;margin:0 0 8px;">Hey ${data.name} — your last CV score</p>
+      <div style="font-size:64px;font-weight:800;color:${color};line-height:1;">${data.score}</div>
+      <div style="font-size:13px;color:#8895B3;margin:4px 0 8px;">/ 100</div>
+      <span style="display:inline-block;padding:4px 14px;border-radius:100px;font-size:12px;font-weight:600;background:${color}20;color:${color};border:1px solid ${color}40;">${label}</span>
+      ${roleContext}
+      ${streakLine}
+      <p style="color:#8895B3;font-size:12px;margin:0;">Scored ${data.daysSinceLastScore === 0 ? "today" : data.daysSinceLastScore === 1 ? "yesterday" : `${data.daysSinceLastScore} days ago`}</p>
+    </div>
+
+    <!-- Personalised tip -->
+    ${tipSection}
+
+    <!-- Missing keywords -->
+    ${keywordsSection}
+
+    <!-- Top action -->
+    ${data.topAction ? `
+    <div style="background:#3B82F608;border:1px solid #3B82F625;border-radius:12px;padding:16px;margin-bottom:20px;">
+      <p style="color:#3B82F6;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 8px;">Your #1 priority this week</p>
+      <p style="color:#F0F4FF;font-size:14px;line-height:1.6;margin:0;">${data.topAction}</p>
+    </div>
+    ` : ""}
+
+    <!-- Free access banner -->
+    <div style="background:linear-gradient(135deg,#10B98110,#3B82F610);border:1px solid #10B98125;border-radius:12px;padding:16px;margin-bottom:24px;text-align:center;">
+      <p style="color:#10B981;font-size:13px;font-weight:600;margin:0 0 4px;">⏳ Free access closes 29 July 2026</p>
+      <p style="color:#8895B3;font-size:12px;margin:0;">CV Rewrite, Cover Letters and LinkedIn Analysis are all free right now. Get them before the window closes.</p>
+    </div>
+
+    <!-- CTA -->
+    <div style="text-align:center;margin-bottom:32px;">
+      <a href="${appUrl}" style="display:inline-block;background:#3B82F6;color:#fff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;margin-bottom:12px;">Re-score My CV This Week</a>
+      <p style="color:#8895B3;font-size:12px;margin:8px 0 0;">Takes 2 minutes. Free. No credit card.</p>
+    </div>
+
+    <!-- Footer -->
+    <div style="border-top:1px solid #1A2340;padding-top:20px;text-align:center;">
+      <p style="color:#8895B3;font-size:11px;margin:0;">You're receiving this because you used CVScore. <a href="#" style="color:#3B82F6;">Unsubscribe</a></p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+
+  try {
+    await transporter.sendMail({ from: FROM, to, subject, html });
+    console.log(`[email] Weekly nudge sent to ${to}`);
+  } catch (err) {
+    console.error(`[email] Weekly nudge failed for ${to}:`, err);
+  }
+}

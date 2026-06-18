@@ -3,7 +3,7 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { nanoid } from "nanoid";
 import multer from "multer";
-import { sendScoreEmail, sendRewriteReadyEmail, sendWelcomeEmail } from "./email";
+import { sendScoreEmail, sendRewriteReadyEmail, sendWelcomeEmail, sendPersonalisedWeeklyNudge } from "./email";
 import type { FastScoreResult } from "@shared/schema";
 import { execFileSync } from "child_process";
 import { writeFileSync, unlinkSync, existsSync } from "fs";
@@ -523,6 +523,77 @@ Return exactly this JSON:
       res.json(parsed);
     } catch (err: any) {
       console.error("Cover letters error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Cron: weekly personalised nudge ────────────────────────────────────────
+  app.post("/api/cron/weekly-nudge", async (req, res) => {
+    const secret = req.headers["x-admin-secret"];
+    if (!secret || secret !== process.env.ADMIN_SECRET)
+      return res.status(401).json({ error: "Unauthorised" });
+
+    try {
+      // Fetch users active in last 30 days with their last session
+      const active = await storage.getActiveUsersWithLastSession(30);
+      console.log(`[cron] Weekly nudge: ${active.length} active users to email`);
+
+      let sent = 0;
+      let skipped = 0;
+
+      for (const { user, session } of active) {
+        try {
+          // Parse categories to find weakest area
+          let weakestCategory = null;
+          let missingKeywords: string[] = [];
+          let topAction: string | null = null;
+
+          if (session.categories) {
+            const cats = JSON.parse(session.categories) as Array<{
+              name: string; score: number; feedback: string; suggestion: string;
+            }>;
+            const sorted = [...cats].sort((a, b) => a.score - b.score);
+            weakestCategory = sorted[0] || null;
+          }
+
+          if (session.keywords) {
+            const kws = JSON.parse(session.keywords) as { matched: string[]; missing: string[] };
+            missingKeywords = kws.missing || [];
+          }
+
+          if (session.actions) {
+            const actions = JSON.parse(session.actions) as string[];
+            topAction = actions[0] || null;
+          }
+
+          const daysSince = Math.floor(
+            (Date.now() - new Date(session.createdAt).getTime()) / (1000 * 60 * 60 * 24)
+          );
+
+          await sendPersonalisedWeeklyNudge(user.email, {
+            name: user.name,
+            score: session.score!,
+            jobTitle: session.jobTitle,
+            companyName: session.companyName,
+            weakestCategory,
+            missingKeywords,
+            topAction,
+            daysSinceLastScore: daysSince,
+            totalRuns: user.runCount,
+          });
+
+          sent++;
+          // Small delay between sends to avoid Gmail rate limits
+          await new Promise((r) => setTimeout(r, 300));
+        } catch (err) {
+          console.error(`[cron] Failed for user ${user.id}:`, err);
+          skipped++;
+        }
+      }
+
+      res.json({ ok: true, sent, skipped, total: active.length });
+    } catch (err: any) {
+      console.error("[cron] Weekly nudge error:", err);
       res.status(500).json({ error: err.message });
     }
   });
