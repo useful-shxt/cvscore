@@ -7,14 +7,14 @@ function getTransporter() {
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   const host = process.env.SMTP_HOST || "smtp.gmail.com";
-  const port = parseInt(process.env.SMTP_PORT || "587");
+  const port = parseInt(process.env.SMTP_PORT || "465");
 
   if (!user || !pass) {
     console.warn("[email] SMTP not configured — emails will be skipped");
     return null;
   }
 
-  return nodemailer.createTransport({ host, port, secure: false, auth: { user, pass } });
+  return nodemailer.createTransport({ host, port, secure: true, auth: { user, pass } });
 }
 
 const FROM = process.env.SMTP_FROM || `CVScore <${process.env.SMTP_USER || "hello@cvscore.app"}>`;
