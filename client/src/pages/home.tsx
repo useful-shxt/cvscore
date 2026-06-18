@@ -758,17 +758,17 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        <div className="max-w-5xl mx-auto px-4 py-6 pb-24 space-y-6">
           {isNewUser && <EmailSentBadge email={user.email} />}
 
           {/* Company Intel — show if available */}
           {companyIntel && <CompanyIntelPanel intel={companyIntel} />}
 
           {/* Score hero */}
-          <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-6 flex flex-col md:flex-row items-center gap-8">
+          <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-4 md:p-6 flex flex-col md:flex-row items-center gap-4 md:gap-8">
             <ScoreDial score={fast.overallScore} />
             <div className="flex-1 space-y-3">
-              <p className="text-[#8895B3] text-sm leading-relaxed">{fast.summary}</p>
+              <p className="text-white/70 text-sm leading-relaxed">{fast.summary}</p>
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Top Actions</p>
                 {fast.topActions.map((action, i) => (
@@ -783,13 +783,13 @@ export default function Home() {
 
           {/* Output tabs */}
           <Tabs value={outputTab} onValueChange={(v) => setOutputTab(v as any)}>
-            <TabsList className="bg-[#0F1629] border border-[#2A3558] w-full flex-wrap h-auto">
-              <TabsTrigger value="score" data-testid="tab-score" className="flex-1 text-xs sm:text-sm">Score</TabsTrigger>
-              <TabsTrigger value="rewrite" data-testid="tab-rewrite" className="flex-1 text-xs sm:text-sm">CV Rewrite</TabsTrigger>
-              <TabsTrigger value="cover" data-testid="tab-cover" className="flex-1 text-xs sm:text-sm">Cover Letters</TabsTrigger>
-              <TabsTrigger value="linkedin" data-testid="tab-linkedin" className="flex-1 text-xs sm:text-sm">LinkedIn</TabsTrigger>
-              <TabsTrigger value="tracker" data-testid="tab-tracker" className="flex-1 text-xs sm:text-sm">
-                Tracker {trackerEntries.length > 0 && <span className="ml-1 text-xs bg-blue-500 text-white rounded-full w-4 h-4 flex items-center justify-center leading-none">{trackerEntries.length}</span>}
+            <TabsList className="bg-[#0F1629] border border-[#2A3558] w-full h-auto p-1 grid grid-cols-5 gap-0.5">
+              <TabsTrigger value="score" data-testid="tab-score" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px]">Score</TabsTrigger>
+              <TabsTrigger value="rewrite" data-testid="tab-rewrite" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px]"><span className="hidden sm:inline">CV </span>Rewrite</TabsTrigger>
+              <TabsTrigger value="cover" data-testid="tab-cover" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px]"><span className="hidden sm:inline">Cover </span>Letter</TabsTrigger>
+              <TabsTrigger value="linkedin" data-testid="tab-linkedin" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px]">LinkedIn</TabsTrigger>
+              <TabsTrigger value="tracker" data-testid="tab-tracker" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px] inline-flex items-center justify-center gap-0.5">
+                Tracker {trackerEntries.length > 0 && <span className="text-[9px] bg-blue-500 text-white rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">{trackerEntries.length}</span>}
               </TabsTrigger>
             </TabsList>
 
@@ -1012,7 +1012,7 @@ export default function Home() {
                       onChange={(e) => setLinkedinText(e.target.value)}
                       placeholder="Paste everything from your LinkedIn profile — headline, about, experience, education, skills, certifications..."
                       data-testid="textarea-linkedin"
-                      className="min-h-[200px] bg-[#1A2340] border-[#2A3558] text-white placeholder:text-[#8895B3] text-sm resize-none focus:border-blue-500"
+                      className="min-h-[180px] bg-[#1A2340] border-[#2A3558] text-white placeholder:text-white/40 text-sm resize-none focus:border-blue-500"
                     />
                     {linkedinText.trim().length > 0 && linkedinText.trim().length < 50 && (
                       <p className="text-xs text-amber-400">Keep going — paste your full profile for an accurate score</p>
@@ -1085,7 +1085,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-2xl mx-auto px-4 pt-14 pb-6 text-center">
+      <div className="max-w-2xl mx-auto px-4 pt-8 md:pt-14 pb-6 text-center">
         {!isNewUser && (
           <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 border border-blue-500/20 bg-blue-500/5 text-xs text-blue-400 font-medium mb-4">
             <span>Run #{(user.runCount ?? 0) + 1}</span>
@@ -1099,17 +1099,17 @@ export default function Home() {
             Real-time scoring · Company intel · LinkedIn analysis · 3 cover letter styles
           </div>
         )}
-        <h1 className="font-display text-4xl font-bold text-white leading-tight mb-4">
-          Score your CV against<br />
+        <h1 className="font-display text-3xl md:text-4xl font-bold text-white leading-tight mb-4">
+          Score your CV against{" "}
           <span className="text-blue-400">any job description</span>
         </h1>
-        <p className="text-[#8895B3] text-base leading-relaxed">
-          Instant ATS score, live company intelligence, LinkedIn analysis,<br />
+        <p className="text-white/60 text-base leading-relaxed">
+          Instant ATS score, live company intelligence, LinkedIn analysis,
           and a full CV rewrite — all free right now.
         </p>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 pb-16 space-y-4">
+      <div className="max-w-3xl mx-auto px-4 pb-24 space-y-4">
         {/* CV input */}
         <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
           <div className="flex items-center justify-between">
@@ -1143,7 +1143,7 @@ export default function Home() {
             </>
           ) : (
             <Textarea value={cvText} onChange={(e) => setCvText(e.target.value)} placeholder="Paste your CV text here..." data-testid="textarea-cv"
-              className="min-h-[200px] bg-[#1A2340] border-[#2A3558] text-white placeholder:text-[#8895B3] text-sm resize-none focus:border-blue-500"
+              className="min-h-[160px] bg-[#1A2340] border-[#2A3558] text-white placeholder:text-white/40 text-sm resize-none focus:border-blue-500"
             />
           )}
           {cvText && cvTab === "paste" && <p className="text-xs text-[#8895B3]">{cvText.split(/\s+/).length} words</p>}
@@ -1184,7 +1184,7 @@ export default function Home() {
             onChange={(e) => setJdText(e.target.value)}
             placeholder="Paste the full job description here — more detail = better score and company intelligence..."
             data-testid="textarea-jd"
-            className={`min-h-[160px] bg-[#1A2340] text-white placeholder:text-[#8895B3] text-sm resize-none transition-colors ${
+            className={`min-h-[140px] bg-[#1A2340] text-white placeholder:text-white/40 text-sm resize-none transition-colors ${
               jdHighlight ? "border-blue-500" : "border-[#2A3558] focus:border-blue-500"
             }`}
           />
@@ -1213,7 +1213,7 @@ export default function Home() {
           disabled={!canScore || fastScoreMutation.isPending}
           data-testid="button-score"
           size="lg"
-          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-display font-semibold text-base py-6 rounded-xl disabled:opacity-40"
+          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-display font-semibold text-base py-6 rounded-xl disabled:opacity-60 min-h-[56px]"
         >
           {fastScoreMutation.isPending ? (
             <span className="flex items-center gap-2">
@@ -1231,7 +1231,7 @@ export default function Home() {
 
         <div className="flex items-center justify-center gap-6 pt-2 flex-wrap">
           {["Instant score", "Company intel", "LinkedIn analysis", "ATS-ready"].map((feat) => (
-            <div key={feat} className="flex items-center gap-1.5 text-xs text-[#8895B3]">
+            <div key={feat} className="flex items-center gap-1.5 text-xs text-white/60">
               <span className="text-green-400">✓</span>
               {feat}
             </div>
