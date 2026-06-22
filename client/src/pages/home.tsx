@@ -1585,8 +1585,21 @@ export default function Home() {
 
   // ── Returning user dashboard
   const loadTrackerSession = (entry: TrackerEntry) => {
-    if (entry.cvText) setCvText(entry.cvText);
-    if (entry.jdText) setJdText(entry.jdText);
+    const restoredFast: FastScoreResult = {
+      overallScore: entry.score,
+      categories: (entry.categories || []).map((c) => ({
+        name: c.name as any,
+        score: c.score,
+        feedback: "",
+        suggestion: "",
+      })),
+      keywords: entry.keywords || { matched: [], missing: [] },
+      topActions: entry.topActions || [],
+      summary: `${entry.jobTitle} at ${entry.companyName} — Score: ${entry.score}/100`,
+    };
+    setScore({ fast: restoredFast, deep: null, sessionId: entry.sessionId, deepLoading: false });
+    setStage("results");
+    setOutputTab("score");
     setShowDashboard(false);
   };
 
@@ -2044,13 +2057,6 @@ export default function Home() {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 pt-8 md:pt-14 pb-6 text-center">
-        {!isNewUser && (
-          <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 border border-blue-500/20 bg-blue-500/5 text-xs text-blue-400 font-medium mb-4">
-            <span>Run #{(user.runCount ?? 0) + 1}</span>
-            <span className="text-[#8895B3]">·</span>
-            <span>Welcome back, {user.name.split(" ")[0]}</span>
-          </div>
-        )}
         {isNewUser && (
           <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 border border-green-500/20 bg-green-500/5 text-xs text-green-400 font-medium mb-4">
             <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
