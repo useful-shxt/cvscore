@@ -370,90 +370,230 @@ function CompanyIntelPanel({ intel }: { intel: CompanyIntelResult }) {
   );
 }
 
-// ─── LinkedIn Analysis Panel ───────────────────────────────────────────────────
-function LinkedInPanel({ analysis, cvProvided }: { analysis: LinkedInAnalysisResult; cvProvided: boolean }) {
-  const color = analysis.overallScore >= 75 ? "#10B981" : analysis.overallScore >= 50 ? "#F59E0B" : "#EF4444";
-  const sections = [
-    { label: "Headline", score: analysis.headlineScore, feedback: analysis.headlineFeedback },
-    { label: "About / Summary", score: analysis.summaryScore, feedback: analysis.summaryFeedback },
-    { label: "Skills", score: analysis.skillsScore, feedback: analysis.skillsFeedback },
-    { label: "Experience", score: analysis.experienceScore, feedback: analysis.experienceFeedback },
-  ];
+// ─── LinkedIn Analysis Panel (V2) ─────────────────────────────────────────────
+function LinkedInPanel({ analysis }: { analysis: LinkedInAnalysisResult }) {
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [expandedPost, setExpandedPost] = useState<number | null>(null);
+
+  const copy = (key: string, text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(key);
+      setTimeout(() => setCopiedField(null), 2000);
+    });
+  };
+
+  const scoreColor = (s: number) => s >= 75 ? "#10B981" : s >= 50 ? "#F59E0B" : "#EF4444";
+
   return (
     <div className="space-y-4">
+
       {/* Score hero */}
       <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5 flex flex-col sm:flex-row items-center gap-6">
-        <ScoreDial score={analysis.overallScore} size={140} />
-        <div className="flex-1 space-y-3">
-          <div>
-            <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider mb-1">LinkedIn vs JD Match</p>
-            <p className="text-sm text-white leading-relaxed">Your LinkedIn profile scores {analysis.overallScore}/100 against this role.</p>
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Top 3 Actions</p>
-            {analysis.topActions.map((action, i) => (
-              <div key={i} className="flex items-start gap-2 text-sm text-white">
-                <span className="text-blue-400 font-bold flex-shrink-0">{i + 1}.</span>
-                <span>{action}</span>
-              </div>
-            ))}
-          </div>
+        <ScoreDial score={analysis.overallScore} size={130} />
+        <div className="flex-1 space-y-3 w-full">
+          {analysis.targetSpace && (
+            <div>
+              <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider mb-1">Target Position</p>
+              <p className="text-sm text-white">{analysis.targetSpace}</p>
+            </div>
+          )}
+          {analysis.priorityActions?.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Priority Actions</p>
+              {analysis.priorityActions.map((action, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm text-white">
+                  <span className="text-blue-400 font-bold flex-shrink-0">{i + 1}.</span>
+                  <span>{action}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Section scores */}
-      <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-4">
-        <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Section Breakdown</p>
-        {sections.map((s) => {
-          const c = s.score >= 75 ? "#10B981" : s.score >= 50 ? "#F59E0B" : "#EF4444";
-          return (
-            <div key={s.label} className="space-y-1.5">
-              <div className="flex justify-between">
-                <span className="text-sm font-medium text-white">{s.label}</span>
-                <span className="text-sm font-bold" style={{ color: c }}>{s.score}</span>
+      {analysis.sectionScores?.length > 0 && (
+        <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-4">
+          <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Section Breakdown</p>
+          {analysis.sectionScores.map((s) => {
+            const c = scoreColor(s.score);
+            return (
+              <div key={s.section} className="space-y-1">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-sm font-medium text-white">{s.section}</span>
+                  <span className="text-sm font-bold" style={{ color: c }}>{s.score}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-[#1A2340] overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-700" style={{ width: `${s.score}%`, backgroundColor: c }} />
+                </div>
+                {s.issue && <p className="text-xs text-[#8895B3]">{s.issue}</p>}
               </div>
-              <div className="h-2 rounded-full bg-[#1A2340] overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${s.score}%`, backgroundColor: c }} />
-              </div>
-              <p className="text-xs text-[#8895B3]">{s.feedback}</p>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Headline */}
+      {analysis.headline && (
+        <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Optimised Headline</p>
+            <button onClick={() => copy("headline", analysis.headline)} className="text-xs text-[#8895B3] hover:text-white transition-colors">
+              {copiedField === "headline" ? "✓ Copied" : "Copy"}
+            </button>
+          </div>
+          <div className="bg-[#1A2340] rounded-lg px-4 py-3">
+            <p className="text-sm font-semibold text-white leading-relaxed">{analysis.headline}</p>
+          </div>
+          {analysis.headlineAlternatives?.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-[#8895B3] uppercase tracking-wider font-semibold">Alternatives</p>
+              {analysis.headlineAlternatives.map((alt, i) => (
+                <div key={i} className="flex items-start justify-between gap-2 bg-[#1A2340]/50 rounded-lg px-3 py-2">
+                  <p className="text-xs text-[#C8D4EE]">{alt}</p>
+                  <button onClick={() => copy(`alt-${i}`, alt)} className="text-[10px] text-[#8895B3] hover:text-white flex-shrink-0">
+                    {copiedField === `alt-${i}` ? "✓" : "Copy"}
+                  </button>
+                </div>
+              ))}
             </div>
-          );
-        })}
+          )}
+        </div>
+      )}
+
+      {/* About section */}
+      {analysis.about && (
+        <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Rewritten About Section</p>
+            <button onClick={() => copy("about", analysis.about)} className="text-xs text-[#8895B3] hover:text-white transition-colors">
+              {copiedField === "about" ? "✓ Copied" : "Copy"}
+            </button>
+          </div>
+          <div className="bg-[#1A2340] rounded-lg px-4 py-3">
+            <p className="text-sm text-[#C8D4EE] leading-relaxed whitespace-pre-wrap">{analysis.about}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Experience rewrites */}
+      {analysis.experienceRewrites?.length > 0 && (
+        <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-4">
+          <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Experience Rewrites</p>
+          {analysis.experienceRewrites.map((r, i) => (
+            <div key={i} className="space-y-2">
+              <p className="text-xs font-semibold text-white">{r.role}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div className="bg-red-500/5 border border-red-500/15 rounded-lg p-3">
+                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider mb-1.5">Before</p>
+                  <p className="text-xs text-[#C8D4EE] leading-relaxed">{r.before}</p>
+                </div>
+                <div className="bg-green-500/5 border border-green-500/15 rounded-lg p-3">
+                  <div className="flex justify-between items-start mb-1.5">
+                    <p className="text-[10px] font-bold text-green-400 uppercase tracking-wider">After</p>
+                    <button onClick={() => copy(`rw-${i}`, r.after)} className="text-[10px] text-[#8895B3] hover:text-white">
+                      {copiedField === `rw-${i}` ? "✓" : "Copy"}
+                    </button>
+                  </div>
+                  <p className="text-xs text-[#C8D4EE] leading-relaxed">{r.after}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Skills + Keywords */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {analysis.skillsToAdd?.length > 0 && (
+          <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
+            <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Skills to Add</p>
+            <div className="flex flex-wrap gap-1.5">
+              {analysis.skillsToAdd.map((s, i) => (
+                <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">{s}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {analysis.recruiterKeywords?.length > 0 && (
+          <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
+            <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Recruiter Keywords</p>
+            <div className="flex flex-wrap gap-1.5">
+              {analysis.recruiterKeywords.map((k, i) => (
+                <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 font-medium">{k}</span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Keywords missing + gaps */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {analysis.keywordsMissing.length > 0 && (
-          <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5">
-            <p className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-3">✗ Keywords Missing from LinkedIn</p>
-            <div className="flex flex-wrap gap-1.5">
-              {analysis.keywordsMissing.map((kw, i) => (
-                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">{kw}</span>
-              ))}
+      {/* Gap analysis */}
+      {analysis.gapAnalysis && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5">
+          <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">Gap Analysis</p>
+          <p className="text-sm text-[#C8D4EE] leading-relaxed">{analysis.gapAnalysis}</p>
+        </div>
+      )}
+
+      {/* Featured + Banner + Creator mode */}
+      {(analysis.featuredSection || analysis.bannerIdea || analysis.creatorMode) && (
+        <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
+          <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Profile Extras</p>
+          {analysis.featuredSection && (
+            <div>
+              <p className="text-xs font-semibold text-white mb-1">Featured Section</p>
+              <p className="text-sm text-[#C8D4EE]">{analysis.featuredSection}</p>
             </div>
-          </div>
-        )}
-        {cvProvided && analysis.gaps.length > 0 && (
-          <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5">
-            <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-3">⚠ CV vs LinkedIn Gaps</p>
-            <div className="space-y-1.5">
-              {analysis.gaps.map((g, i) => (
-                <p key={i} className="text-xs text-[#8895B3] flex gap-1.5"><span className="text-amber-400">→</span>{g}</p>
-              ))}
+          )}
+          {analysis.bannerIdea && (
+            <div>
+              <p className="text-xs font-semibold text-white mb-1">Banner Idea</p>
+              <p className="text-sm text-[#C8D4EE]">{analysis.bannerIdea}</p>
             </div>
-          </div>
-        )}
-        {analysis.extras.length > 0 && (
-          <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5">
-            <p className="text-xs font-semibold text-green-400 uppercase tracking-wider mb-3">✓ LinkedIn Strengths</p>
-            <div className="space-y-1.5">
-              {analysis.extras.map((e, i) => (
-                <p key={i} className="text-xs text-[#8895B3] flex gap-1.5"><span className="text-green-400">✓</span>{e}</p>
-              ))}
+          )}
+          {analysis.creatorMode && (
+            <div>
+              <p className="text-xs font-semibold text-white mb-1">Creator Mode</p>
+              <p className="text-sm text-[#C8D4EE]">{analysis.creatorMode}</p>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* 5 LinkedIn posts */}
+      {analysis.posts?.length > 0 && (
+        <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
+          <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">5 LinkedIn Post Drafts</p>
+          <div className="space-y-3">
+            {analysis.posts.map((post, i) => (
+              <div key={i} className="bg-[#1A2340] rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setExpandedPost(expandedPost === i ? null : i)}
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#1F2B47] transition-colors"
+                >
+                  <div className="flex items-center gap-3 text-left min-w-0">
+                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider flex-shrink-0 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">{post.angle}</span>
+                    <span className="text-sm font-semibold text-white truncate">{post.hook}</span>
+                  </div>
+                  <span className="text-[#8895B3] text-xs flex-shrink-0 ml-2">{expandedPost === i ? "▲" : "▼"}</span>
+                </button>
+                {expandedPost === i && (
+                  <div className="px-4 pb-4 border-t border-[#2A3558] space-y-3">
+                    <p className="text-sm font-semibold text-white pt-3">{post.hook}</p>
+                    <p className="text-sm text-[#C8D4EE] leading-relaxed whitespace-pre-wrap">{post.body}</p>
+                    <button
+                      onClick={() => copy(`post-${i}`, `${post.hook}\n\n${post.body}`)}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-[#0F1629] border border-[#2A3558] text-[#8895B3] hover:text-white transition-colors"
+                    >
+                      {copiedField === `post-${i}` ? "✓ Copied" : "Copy post"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1377,7 +1517,7 @@ export default function Home() {
             <TabsContent value="linkedin" className="mt-4">
               {linkedinAnalysis ? (
                 <div className="space-y-4">
-                  <LinkedInPanel analysis={linkedinAnalysis} cvProvided={!!cvText} />
+                  <LinkedInPanel analysis={linkedinAnalysis} />
                   <Button variant="ghost" size="sm" onClick={() => { setLinkedinAnalysis(null); setLinkedinText(""); }} className="text-xs text-[#8895B3] hover:text-white">
                     ← Analyse a different profile
                   </Button>

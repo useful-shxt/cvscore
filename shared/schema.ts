@@ -108,21 +108,24 @@ export interface CompanyIntelResult {
   hiringSignals: string;  // what the role signals about the company direction
 }
 
-// ─── Stage 2: LinkedIn Analysis ───────────────────────────────────────────────
+// ─── Stage 2: LinkedIn Analysis (V2 format — returned by /api/linkedin/analyse) ─
 export interface LinkedInAnalysisResult {
+  mode: "profile_text" | "screenshot" | "cv_based";
   overallScore: number;
-  headlineScore: number;
-  headlineFeedback: string;
-  summaryScore: number;
-  summaryFeedback: string;
-  skillsScore: number;
-  skillsFeedback: string;
-  experienceScore: number;
-  experienceFeedback: string;
-  gaps: string[];           // things on CV missing from LinkedIn
-  extras: string[];         // things on LinkedIn not on CV (potential strengths)
-  topActions: string[];     // 3 quick wins
-  keywordsMissing: string[]; // keywords from JD missing from LinkedIn
+  targetSpace: string;
+  sectionScores: { section: string; score: number; current: string; issue: string }[];
+  headline: string;
+  headlineAlternatives: string[];
+  about: string;
+  experienceRewrites: { role: string; before: string; after: string }[];
+  skillsToAdd: string[];
+  recruiterKeywords: string[];
+  featuredSection: string;
+  bannerIdea: string;
+  creatorMode: string;
+  posts: { hook: string; angle: string; body: string }[];
+  priorityActions: string[];
+  gapAnalysis: string;
 }
 
 // ─── Stage 2: Tracker entry (lightweight session summary) ─────────────────────
@@ -235,25 +238,7 @@ export interface DeepAnalysisResultV2 {
   competitiveInsights: string;
 }
 
-// ─── LinkedIn extended types ──────────────────────────────────────────────────
-export interface LinkedInAnalysisResultV2 {
-  mode: "profile_text" | "screenshot" | "cv_based";
-  overallScore: number;
-  targetSpace: string;
-  sectionScores: { section: string; score: number; current: string; issue: string }[];
-  headline: string;
-  headlineAlternatives: string[];
-  about: string;
-  experienceRewrites: { role: string; before: string; after: string }[];
-  skillsToAdd: string[];
-  recruiterKeywords: string[];
-  featuredSection: string;
-  bannerIdea: string;
-  creatorMode: string;
-  posts: { hook: string; angle: string; body: string }[];
-  priorityActions: string[];
-  gapAnalysis: string;
-}
+// LinkedInAnalysisResultV2 merged into LinkedInAnalysisResult above
 
 // ─── FitPlan types ────────────────────────────────────────────────────────────
 export interface MealItem {
