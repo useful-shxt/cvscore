@@ -5,10 +5,7 @@ import { nanoid } from "nanoid";
 import multer from "multer";
 import { sendScoreEmail, sendRewriteReadyEmail, sendWelcomeEmail, sendPersonalisedWeeklyNudge } from "./email";
 import type { FastScoreResult } from "@shared/schema";
-import { execFileSync } from "child_process";
-import { writeFileSync, unlinkSync, existsSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { PDFParse } from "pdf-parse";
 import rateLimit from "express-rate-limit";
 import { callClaude, callClaudeHaiku, callClaudeSonnet, fetchPageText } from "./claude";
 import supabase from "./supabase";
@@ -169,24 +166,20 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ── PDF Upload ──────────────────────────────────────────────────────────────
   app.post("/api/cv/upload", generalLimiter, upload.single("file"), async (req, res) => {
-    const tmpFile = join(tmpdir(), `cv-${nanoid()}.pdf`);
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-      writeFileSync(tmpFile, req.file.buffer);
-      const text = execFileSync("pdftotext", ["-layout", tmpFile, "-"], {
-        timeout: 30000,
-        maxBuffer: 10 * 1024 * 1024,
-      }).toString("utf-8").trim();
+
+      const parser = new PDFParse({ data: req.file.buffer });
+      const result = await parser.getText();
+      const text = result.text.trim();
 
       if (!text || text.length < 20)
-        return res.status(422).json({ error: "Could not extract text from PDF. The file may be image-based. Please paste your CV text instead." });
+        return res.status(422).json({ error: "Could not extract text from PDF. The file may be image-based — please paste your CV text instead." });
 
       res.json({ text: text.slice(0, MAX_CV_LEN) });
     } catch (err: any) {
       console.error("PDF parse error:", err);
       res.status(500).json({ error: "Failed to parse PDF. Please paste your CV text instead." });
-    } finally {
-      if (existsSync(tmpFile)) unlinkSync(tmpFile);
     }
   });
 
