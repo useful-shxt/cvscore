@@ -3,6 +3,7 @@
  * The usefulshxt platform homepage — shown at /
  * Add as a new file. Update App.tsx to show this at "/" and CVScore at "/cvscore"
  */
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 
 const tools = [
@@ -51,6 +52,16 @@ const tools = [
 ];
 
 export default function PlatformHome() {
+  const [cvscoreHref, setCvscoreHref] = useState("/cvscore");
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("cvscore_user")) {
+        setCvscoreHref("/cvscore?returning=1");
+      }
+    } catch {}
+  }, []);
+
   return (
     <div style={{ background: "#080D1A", minHeight: "100vh", fontFamily: "'Inter', sans-serif" }}>
       <div style={{ maxWidth: "900px", margin: "0 auto", padding: "60px 24px 100px" }}>
@@ -86,7 +97,7 @@ export default function PlatformHome() {
         {/* Tool cards */}
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {tools.map((tool) => (
-            <Link key={tool.path} href={tool.path}>
+            <Link key={tool.path} href={tool.path === "/cvscore" ? cvscoreHref : tool.path}>
               <a style={{ textDecoration: "none", display: "block" }}>
                 <div style={{
                   background: tool.bg, border: `1px solid ${tool.border}`,

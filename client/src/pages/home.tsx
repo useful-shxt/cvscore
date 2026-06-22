@@ -1118,6 +1118,9 @@ export default function Home() {
   // ── Auth rehydration on mount ────────────────────────────────────────────────
   useEffect(() => {
     async function rehydrate() {
+      // With hash routing, ?returning=1 lands inside the hash as #/cvscore?returning=1
+      const isReturning = window.location.hash.includes("returning=1");
+
       try {
         const saved = localStorage.getItem("cvscore_user");
         if (saved) {
@@ -1132,6 +1135,9 @@ export default function Home() {
               const data = await res.json();
               setUser({ ...data.user, email: parsed.email });
               setIsNewUser(false);
+              if (isReturning) {
+                window.history.replaceState({}, "", window.location.pathname + window.location.search + "#/cvscore");
+              }
               setAuthChecked(true);
               return;
             }
@@ -1156,6 +1162,9 @@ export default function Home() {
             setUser({ ...data.user, email });
             setIsNewUser(false);
             try { localStorage.setItem("cvscore_user", JSON.stringify({ ...data.user, email })); } catch {}
+            if (isReturning) {
+              window.history.replaceState({}, "", window.location.pathname + window.location.search + "#/cvscore");
+            }
             setAuthChecked(true);
             return;
           }
