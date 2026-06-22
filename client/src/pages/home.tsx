@@ -815,7 +815,7 @@ function TrackerPanel({ entries, onSelect }: { entries: TrackerEntry[]; onSelect
           >
             <MiniScoreRing score={entry.score} />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">{entry.jobTitle} at {entry.companyName}</p>
+              <p className="text-sm font-semibold text-white truncate">{entry.jobTitle || "Unknown Role"} at {entry.companyName || "Unknown Company"}</p>
               <p className="text-xs text-white/30 mt-0.5">{date}</p>
             </div>
             <div className="text-right flex-shrink-0">
@@ -2014,9 +2014,7 @@ export default function Home() {
             <TabsContent value="tracker" className="mt-4">
               <TrackerPanel
                 entries={trackerEntries}
-                onSelect={(entry) => {
-                  toast({ title: entry.jobTitle, description: `${entry.companyName} — Score: ${entry.score}/100` });
-                }}
+                onSelect={(entry) => loadTrackerSession(entry)}
               />
             </TabsContent>
 
