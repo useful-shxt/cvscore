@@ -1,3 +1,6 @@
+/**
+ * client/src/App.tsx — REPLACE your existing file entirely with this
+ */
 import { Switch, Route, Router, Link, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { QueryClientProvider } from "@tanstack/react-query";

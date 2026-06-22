@@ -17,6 +17,9 @@ import type {
   CompanyIntelResult,
   LinkedInAnalysisResult,
   TrackerEntry,
+  QAQuestion,
+  QAAnswer,
+  QAResult,
 } from "@shared/schema";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -637,6 +640,297 @@ interface ScoreState {
   deepLoading: boolean;
 }
 
+// ─── Q&A Panel ────────────────────────────────────────────────────────────────
+function QAPanel({ cvText, jdText }: { cvText: string; jdText: string }) {
+  const [questions, setQuestions] = useState<QAQuestion[]>([]);
+  const [newQuestion, setNewQuestion] = useState("");
+  const [newWordLimit, setNewWordLimit] = useState<string>("");
+  const [newBullets, setNewBullets] = useState<string[]>(["", ""]);
+  const [result, setResult] = useState<QAResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<Record<string, string>>({});
+
+  const addQuestion = () => {
+    if (!newQuestion.trim()) return;
+    const q: QAQuestion = {
+      id: Date.now().toString(),
+      text: newQuestion.trim(),
+      wordLimit: newWordLimit ? parseInt(newWordLimit) : undefined,
+      bulletPoints: newBullets.filter(Boolean),
+    };
+    setQuestions((prev) => [...prev, q]);
+    setNewQuestion("");
+    setNewWordLimit("");
+    setNewBullets(["", ""]);
+  };
+
+  const removeQuestion = (id: string) => {
+    setQuestions((prev) => prev.filter((q) => q.id !== id));
+    if (result) {
+      setResult((r) => r ? { ...r, answers: r.answers.filter((a) => a.questionId !== id) } : null);
+    }
+  };
+
+  const generate = async () => {
+    if (!cvText || cvText.trim().length < 50) { setError("Please paste your CV in the CV tab first."); return; }
+    if (!jdText || jdText.trim().length < 50) { setError("Please paste a job description first."); return; }
+    if (!questions.length) { setError("Add at least one application question."); return; }
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch("/api/qa/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cvText, jdText, questions }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Generation failed"); }
+      const data: QAResult = await res.json();
+      setResult(data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const regenerate = async (answer: QAAnswer) => {
+    const q = questions.find((x) => x.id === answer.questionId);
+    setRegenerating(answer.questionId); setError(null);
+    try {
+      const res = await fetch("/api/qa/regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cvText, jdText,
+          question: answer.question,
+          wordLimit: q?.wordLimit,
+          bulletPoints: q?.bulletPoints,
+          previousAnswer: answer.answer,
+          feedback: feedback[answer.questionId] || undefined,
+        }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Regeneration failed"); }
+      const data = await res.json();
+      setResult((r) => r ? {
+        ...r,
+        answers: r.answers.map((a) =>
+          a.questionId === answer.questionId ? { ...a, answer: data.answer, wordCount: data.wordCount } : a
+        ),
+      } : null);
+      setFeedback((f) => { const n = { ...f }; delete n[answer.questionId]; return n; });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRegenerating(null);
+    }
+  };
+
+  const copy = (id: string, text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    });
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Add questions */}
+      {!result && (
+        <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-4">
+          <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Application Questions</p>
+          <p className="text-xs text-[#8895B3]">Paste each application form question. Claude will write tailored answers using your CV and the job description.</p>
+
+          {questions.length > 0 && (
+            <div className="space-y-2">
+              {questions.map((q, i) => (
+                <div key={q.id} className="flex items-start gap-2 bg-[#1A2340] rounded-lg px-3 py-2.5">
+                  <span className="text-xs font-bold text-[#8895B3] mt-0.5 flex-shrink-0">{i + 1}.</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white truncate">{q.text}</p>
+                    {q.wordLimit && <p className="text-xs text-[#8895B3]">{q.wordLimit} words</p>}
+                  </div>
+                  <button onClick={() => removeQuestion(q.id)} className="text-[#3D4F6E] hover:text-red-400 text-xs flex-shrink-0">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <textarea
+              rows={2}
+              value={newQuestion}
+              onChange={(e) => setNewQuestion(e.target.value)}
+              placeholder="Paste an application question here..."
+              className="w-full bg-[#1A2340] border border-[#2A3558] rounded-lg text-white text-sm px-3 py-2.5 outline-none focus:border-blue-500/50 resize-none placeholder-[#3D4F6E]"
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-[#8895B3] mb-1 block">Word limit (optional)</label>
+                <input
+                  type="number"
+                  value={newWordLimit}
+                  onChange={(e) => setNewWordLimit(e.target.value)}
+                  placeholder="e.g. 250"
+                  className="w-full bg-[#1A2340] border border-[#2A3558] rounded-lg text-white text-sm px-3 py-2 outline-none focus:border-blue-500/50"
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={addQuestion}
+                  disabled={!newQuestion.trim()}
+                  className="w-full py-2 rounded-lg text-sm font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Add question
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-[#8895B3] mb-1.5 block">Context to weave in (optional bullet points)</label>
+              {newBullets.map((b, i) => (
+                <input
+                  key={i}
+                  type="text"
+                  value={b}
+                  onChange={(e) => { const n = [...newBullets]; n[i] = e.target.value; setNewBullets(n); }}
+                  placeholder={`Bullet ${i + 1} — e.g. Led 3-person team, reduced costs 20%`}
+                  className="w-full bg-[#1A2340] border border-[#2A3558] rounded-lg text-white text-sm px-3 py-2 outline-none focus:border-blue-500/50 mb-1.5"
+                />
+              ))}
+              <button onClick={() => setNewBullets((b) => [...b, ""])} className="text-xs text-[#8895B3] hover:text-white">+ Add bullet</button>
+            </div>
+          </div>
+
+          {error && <p className="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{error}</p>}
+
+          {questions.length > 0 && (
+            <button
+              onClick={generate}
+              disabled={loading}
+              className="w-full py-3 rounded-lg font-semibold text-sm bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+            >
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Writing answers...
+                </span>
+              ) : `Generate answers for ${questions.length} question${questions.length > 1 ? "s" : ""} →`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Results */}
+      {result && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">{result.answers.length} answer{result.answers.length > 1 ? "s" : ""} generated</p>
+            <button onClick={() => { setResult(null); }} className="text-xs text-[#8895B3] hover:text-white">← Edit questions</button>
+          </div>
+
+          {result.overallAdvice && (
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+              <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-1.5">Overall Advice</p>
+              <p className="text-sm text-[#C8D4EE] leading-relaxed">{result.overallAdvice}</p>
+            </div>
+          )}
+
+          {result.answers.map((answer) => (
+            <div key={answer.questionId} className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-semibold text-white leading-relaxed">{answer.question}</p>
+                {answer.wordCount > 0 && (
+                  <span className={`text-xs flex-shrink-0 px-2 py-0.5 rounded-full font-medium ${answer.withinLimit ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+                    {answer.wordCount}w
+                  </span>
+                )}
+              </div>
+
+              {editingId === answer.questionId ? (
+                <div className="space-y-2">
+                  <textarea
+                    rows={6}
+                    defaultValue={answer.answer}
+                    onChange={(e) => {
+                      setResult((r) => r ? {
+                        ...r,
+                        answers: r.answers.map((a) => a.questionId === answer.questionId ? { ...a, answer: e.target.value } : a)
+                      } : null);
+                    }}
+                    className="w-full bg-[#1A2340] border border-blue-500/40 rounded-lg text-white text-sm px-3 py-2.5 outline-none resize-none"
+                  />
+                  <button onClick={() => setEditingId(null)} className="text-xs text-blue-400">Done editing</button>
+                </div>
+              ) : (
+                <div className="bg-[#1A2340] rounded-lg p-4">
+                  <p className="text-sm text-[#C8D4EE] leading-relaxed whitespace-pre-wrap">{answer.answer}</p>
+                </div>
+              )}
+
+              {answer.whyAsked && (
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-[#8895B3] uppercase tracking-wider">Why asked</p>
+                  <p className="text-xs text-[#8895B3] leading-relaxed">{answer.whyAsked}</p>
+                </div>
+              )}
+
+              {answer.alternativeLine && (
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-[#8895B3] uppercase tracking-wider">Alternative opening</p>
+                  <p className="text-xs text-[#C8D4EE] italic">{answer.alternativeLine}</p>
+                </div>
+              )}
+
+              {answer.strengthsUsed?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {answer.strengthsUsed.map((s, i) => (
+                    <span key={i} className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">{s}</span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => copy(answer.questionId, answer.answer)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-[#1A2340] border border-[#2A3558] text-[#8895B3] hover:text-white transition-colors"
+                >
+                  {copied === answer.questionId ? "✓ Copied" : "Copy answer"}
+                </button>
+                <button
+                  onClick={() => setEditingId(editingId === answer.questionId ? null : answer.questionId)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-[#1A2340] border border-[#2A3558] text-[#8895B3] hover:text-white transition-colors"
+                >
+                  Edit
+                </button>
+                <div className="flex gap-1.5 flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={feedback[answer.questionId] || ""}
+                    onChange={(e) => setFeedback((f) => ({ ...f, [answer.questionId]: e.target.value }))}
+                    placeholder="Feedback for regeneration..."
+                    className="flex-1 min-w-0 text-xs bg-[#1A2340] border border-[#2A3558] rounded-lg px-2.5 py-1.5 text-white outline-none focus:border-blue-500/40 placeholder-[#3D4F6E]"
+                  />
+                  <button
+                    onClick={() => regenerate(answer)}
+                    disabled={regenerating === answer.questionId}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 disabled:opacity-50 transition-colors flex-shrink-0"
+                  >
+                    {regenerating === answer.questionId ? "..." : "Regenerate"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {error && <p className="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
@@ -651,7 +945,7 @@ export default function Home() {
   const [linkedinAnalysis, setLinkedinAnalysis] = useState<LinkedInAnalysisResult | null>(null);
   const [companyIntel, setCompanyIntel] = useState<CompanyIntelResult | null>(null);
   const [companyIntelLoading, setCompanyIntelLoading] = useState(false);
-  const [outputTab, setOutputTab] = useState<"score" | "rewrite" | "cover" | "linkedin" | "tracker">("score");
+  const [outputTab, setOutputTab] = useState<"score" | "rewrite" | "cover" | "linkedin" | "tracker" | "qa">("score");
   const [jdHighlight, setJdHighlight] = useState(false);
   const [trackerEntries, setTrackerEntries] = useState<TrackerEntry[]>([]);
   const jdCardRef = useRef<HTMLDivElement>(null);
@@ -897,13 +1191,16 @@ export default function Home() {
 
           {/* Output tabs */}
           <Tabs value={outputTab} onValueChange={(v) => setOutputTab(v as any)}>
-            <TabsList className="bg-[#0F1629] border border-[#2A3558] w-full h-auto p-1 grid grid-cols-5 gap-0.5">
+            <TabsList className="bg-[#0F1629] border border-[#2A3558] w-full h-auto p-1 grid grid-cols-6 gap-0.5">
               <TabsTrigger value="score" data-testid="tab-score" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px]">Score</TabsTrigger>
               <TabsTrigger value="rewrite" data-testid="tab-rewrite" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px]"><span className="hidden sm:inline">CV </span>Rewrite</TabsTrigger>
               <TabsTrigger value="cover" data-testid="tab-cover" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px]"><span className="hidden sm:inline">Cover </span>Letter</TabsTrigger>
               <TabsTrigger value="linkedin" data-testid="tab-linkedin" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px]">LinkedIn</TabsTrigger>
               <TabsTrigger value="tracker" data-testid="tab-tracker" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px] inline-flex items-center justify-center gap-0.5">
                 Tracker {trackerEntries.length > 0 && <span className="text-[9px] bg-blue-500 text-white rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">{trackerEntries.length}</span>}
+              </TabsTrigger>
+              <TabsTrigger value="qa" className="text-[10px] sm:text-xs px-1 py-2 min-h-[36px]">
+                Q&amp;A
               </TabsTrigger>
             </TabsList>
 
@@ -1154,6 +1451,11 @@ export default function Home() {
                   toast({ title: entry.jobTitle, description: `${entry.companyName} — Score: ${entry.score}/100` });
                 }}
               />
+            </TabsContent>
+
+            {/* Q&A */}
+            <TabsContent value="qa" className="mt-4">
+              <QAPanel cvText={cvText} jdText={jdText} />
             </TabsContent>
           </Tabs>
 
