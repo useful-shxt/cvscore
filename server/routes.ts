@@ -582,7 +582,12 @@ Return exactly:
         { role: "user", content: prompt },
       ], 4, false, 3000);
 
-      let jsonStr = extractJSON(raw).replace(/,(\s*[}\]])/g, "$1").trim();
+      let jsonStr = extractJSON(raw);
+      jsonStr = jsonStr.replace(/,(\s*[}\]])/g, "$1");
+      jsonStr = jsonStr.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+      jsonStr = jsonStr.replace(/:\s*"([^"]*?)"/g, (match, p1) => {
+        return ': "' + p1.replace(/\n/g, ' ').replace(/\r/g, ' ') + '"';
+      });
       const parsed = JSON.parse(jsonStr);
       if (!parsed.coverLetters || !Array.isArray(parsed.coverLetters))
         throw new Error("Invalid cover letter response");
