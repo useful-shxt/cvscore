@@ -1087,9 +1087,15 @@ function QAPanel({ cvText, jdText }: { cvText: string; jdText: string }) {
   );
 }
 
+function clearAuth() {
+  try { localStorage.removeItem("cvscore_user"); } catch {}
+  document.cookie = "cvscore_email=; max-age=0; path=/";
+}
+
 export default function Home() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [stage, setStage] = useState<AppStage>("input");
   const [cvTab, setCvTab] = useState<"upload" | "paste">("upload");
   const [cvText, setCvText] = useState("");
@@ -1108,6 +1114,53 @@ export default function Home() {
   const jdTextareaRef = useRef<HTMLTextAreaElement>(null);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
+
+  // ── Auth rehydration on mount ────────────────────────────────────────────────
+  useEffect(() => {
+    async function rehydrate() {
+      // 1. Try localStorage (has full user JSON including email + name)
+      try {
+        const saved = localStorage.getItem("cvscore_user");
+        if (saved) {
+          const parsed = JSON.parse(saved) as AppUser;
+          if (parsed?.email && parsed?.name) {
+            const res = await apiRequest("POST", "/api/user/register", { email: parsed.email, name: parsed.name });
+            if (res.ok) {
+              const data = await res.json();
+              setUser({ ...data.user, email: parsed.email });
+              setIsNewUser(false);
+              setAuthChecked(true);
+              return;
+            }
+          }
+        }
+      } catch {}
+
+      // 2. Fall back to cookie (email only — pass placeholder name, server returns real name for existing users)
+      try {
+        const cookieEmail = document.cookie
+          .split("; ")
+          .find((r) => r.startsWith("cvscore_email="))
+          ?.split("=")[1];
+        if (cookieEmail) {
+          const email = decodeURIComponent(cookieEmail);
+          const res = await apiRequest("POST", "/api/user/register", { email, name: "User" });
+          if (res.ok) {
+            const data = await res.json();
+            setUser({ ...data.user, email });
+            setIsNewUser(false);
+            // Refresh localStorage with the recovered data
+            try { localStorage.setItem("cvscore_user", JSON.stringify({ ...data.user, email })); } catch {}
+            setAuthChecked(true);
+            return;
+          }
+        }
+      } catch {}
+
+      setAuthChecked(true);
+    }
+    rehydrate();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-fetch company intel when JD is long enough (debounced 1.5s)
   useEffect(() => {
@@ -1155,6 +1208,8 @@ export default function Home() {
   const handleUser = (u: AppUser, isNew: boolean) => {
     setUser(u);
     setIsNewUser(isNew);
+    try { localStorage.setItem("cvscore_user", JSON.stringify(u)); } catch {}
+    document.cookie = `cvscore_email=${encodeURIComponent(u.email)}; max-age=${30 * 24 * 60 * 60}; path=/; SameSite=Lax`;
   };
 
   const fastScoreMutation = useMutation({
@@ -1267,6 +1322,15 @@ export default function Home() {
     setCompanyIntel(null);
   };
 
+  // ── Auth check spinner
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-[#080D1A] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#2A3558] border-t-blue-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   // ── Email gate
   if (!user) {
     return <EmailGate onUser={handleUser} />;
@@ -1319,6 +1383,12 @@ export default function Home() {
               </span>
             )}
             <span className="text-xs text-[#8895B3] hidden sm:block">{user.name}</span>
+            <button
+              onClick={() => { clearAuth(); window.location.reload(); }}
+              className="text-xs text-[#3D4F6E] hover:text-[#8895B3] transition-colors hidden sm:block"
+            >
+              Not you?
+            </button>
             <Button size="sm" variant="ghost" onClick={reset} data-testid="button-new-run" className="text-[#8895B3] hover:text-white text-xs">
               ← New CV
             </Button>
@@ -1675,6 +1745,12 @@ export default function Home() {
             </div>
             <span className="text-xs text-[#8895B3]">{isNewUser ? "Welcome," : "Back,"} {user.name.split(" ")[0]}</span>
           </div>
+          <button
+            onClick={() => { clearAuth(); window.location.reload(); }}
+            className="text-xs text-[#3D4F6E] hover:text-[#8895B3] transition-colors hidden sm:block"
+          >
+            Not you?
+          </button>
         </div>
       </header>
 
