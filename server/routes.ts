@@ -95,18 +95,51 @@ function extractJSON(raw: string): string {
 }
 
 function extractJobTitle(jd: string): string | null {
-  const lines = jd.split("\n").slice(0, 10).map(l => l.trim()).filter(Boolean);
+  const SKIP = /^about the job(\s+at\b)?/i;
+  const TITLE_KEYWORDS = /\b(manager|director|engineer|analyst|designer|developer|lead|head of|vp|vice president|senior|junior|associate|coordinator|specialist|consultant|architect|scientist|executive|officer|president|recruiter|advisor|strategist)\b/i;
+  const EXPLICIT_PREFIX = /^(job title|role|position|title)\s*[:\-]\s*/i;
+
+  const lines = jd.split("\n").slice(0, 20).map(l => l.trim()).filter(Boolean);
+
+  // Pass 1: explicit prefix label
   for (const line of lines) {
-    if (line.length > 3 && line.length < 80 && !line.includes("http") && !line.includes("@")) {
+    if (EXPLICIT_PREFIX.test(line)) {
+      const title = line.replace(EXPLICIT_PREFIX, "").replace(/[^a-zA-Z0-9 &,\-\/]/g, "").trim().slice(0, 60);
+      if (title.length > 2) return title;
+    }
+  }
+
+  // Pass 2: short line with a known title keyword, not a skip phrase
+  for (const line of lines) {
+    if (SKIP.test(line)) continue;
+    if (line.length < 4 || line.length > 80) continue;
+    if (line.includes("http") || line.includes("@")) continue;
+    if (TITLE_KEYWORDS.test(line)) {
       return line.replace(/[^a-zA-Z0-9 &,\-\/]/g, "").trim().slice(0, 60) || null;
     }
   }
+
+  // Pass 3: first short capitalised line that is not a skip phrase
+  for (const line of lines) {
+    if (SKIP.test(line)) continue;
+    if (line.length < 4 || line.length > 60) continue;
+    if (line.includes("http") || line.includes("@")) continue;
+    if (/^[A-Z]/.test(line)) {
+      return line.replace(/[^a-zA-Z0-9 &,\-\/]/g, "").trim().slice(0, 60) || null;
+    }
+  }
+
   return null;
 }
 
 function extractCompanyName(jd: string): string | null {
-  const match = jd.match(/(?:at|@|join|company[:\s]+)\s+([A-Z][a-zA-Z0-9 &,.'-]{1,40})/m);
-  return match ? match[1].trim().slice(0, 40) : null;
+  // Match "at/join/@ CompanyName" but stop at first verb, comma, or clause
+  const match = jd.match(/(?:(?:working\s+)?at|join(?:ing)?|@|company[:\s]+)\s+([A-Z][a-zA-Z0-9 &.'-]{1,35})/m);
+  if (!match) return null;
+  // Truncate at first comma, verb indicator, or punctuation that signals a clause
+  const raw = match[1].trim();
+  const truncated = raw.split(/[,;]|(?:\s+(?:is|are|was|were|has|have|will|means|helps|makes|builds|offers|provides|enables|allows)\b)/)[0].trim();
+  return truncated.slice(0, 40) || null;
 }
 
 export async function registerRoutes(httpServer: Server, app: Express) {
