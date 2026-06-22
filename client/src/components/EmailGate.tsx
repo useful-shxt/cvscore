@@ -48,7 +48,7 @@ export function EmailGate({ onUser }: EmailGateProps) {
         email: email.trim().toLowerCase(),
       });
       const { user, isNew } = await res.json();
-      onUser(user, isNew);
+      onUser({ ...user, email: email.trim().toLowerCase() }, isNew);
     } catch (err: any) {
       setError("Something went wrong — please try again");
     } finally {
