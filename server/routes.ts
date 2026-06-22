@@ -12,6 +12,7 @@ import { join } from "path";
 import rateLimit from "express-rate-limit";
 import { callClaude, callClaudeHaiku, callClaudeSonnet, fetchPageText } from "./claude";
 import supabase from "./supabase";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -257,6 +258,8 @@ JOB DESCRIPTION (directional — target this role space broadly):
 ${jdText.slice(0, 1500)}
 ${cvSection}
 
+STRICT GROUNDING RULE: All headline rewrites, about section rewrites, experience rewrites, and skill recommendations must be based only on what exists in the CV or LinkedIn profile provided. Do not add languages, qualifications, or skills the candidate has not listed. Do not imply future intentions. Do not invent achievements. Rewrite what exists — make it stronger — but never fabricate.
+
 Return ONLY valid JSON:
 {
   "mode": "${mode}",
@@ -348,6 +351,28 @@ Return ONLY valid JSON:
 
       const prompt = `You are an expert CV/resume analyst and ATS specialist. Analyse this CV against the job description and return ONLY a valid JSON object (no markdown fences).
 
+SCORING HIERARCHY (apply in this order):
+- Direct industry experience (same sector as JD): full weight
+- Transferable role experience (same function, different industry): partial weight — e.g. a CSM in SaaS applying for CSM in real estate scores higher than no CS experience, but lower than direct real estate CS experience
+- Adjacent skills (tools, methodologies, soft skills from JD): minor weight only
+- No relevant experience: heavy penalty
+
+SCORE BANDS:
+- 80-100: Strong match — direct industry AND role experience, most JD requirements met
+- 65-79: Good match — strong transferable experience, minor gaps
+- 50-64: Partial match — relevant role but different industry, or right industry but different role
+- 35-49: Weak match — limited transferable experience, significant gaps
+- Below 35: Poor match — little to no relevant experience
+
+DOMAIN MISMATCH RULE: If the candidate has zero direct industry experience for this specific sector, the overallScore must not exceed 72.
+
+domainMatch values:
+- "strong": candidate has direct experience in the same industry as the JD
+- "partial": candidate has the same role/function but in a different industry
+- "weak": candidate has no relevant industry or role experience
+
+CONTENT GROUNDING RULE: Only reference skills, experience, and achievements that exist in the candidate's CV. Never mention languages, qualifications, future intentions, or soft skills not evidenced in the CV. A shorter honest output is better than a padded one.
+
 CV:
 ${cvText}
 
@@ -356,8 +381,9 @@ ${jdText}
 
 Return this exact JSON:
 {
-  "overallScore": <0-100>,
-  "summary": "<2-3 sentence executive summary>",
+  "overallScore": <0-100 — apply scoring hierarchy and domain mismatch cap>,
+  "domainMatch": "<strong|partial|weak>",
+  "summary": "<2-3 sentence honest assessment — reference only what is in the CV>",
   "categories": [
     { "name": "Keyword Alignment", "score": <0-100>, "feedback": "<observation>", "suggestion": "<fix>" },
     { "name": "CV Structure & Format", "score": <0-100>, "feedback": "<observation>", "suggestion": "<fix>" },
@@ -366,14 +392,14 @@ Return this exact JSON:
     { "name": "ATS Compatibility", "score": <0-100>, "feedback": "<observation>", "suggestion": "<fix>" },
     { "name": "Narrative Clarity", "score": <0-100>, "feedback": "<observation>", "suggestion": "<fix>" }
   ],
-  "keywords": { "matched": ["<keyword>"], "missing": ["<keyword>"] },
+  "keywords": { "matched": ["<keyword from CV>"], "missing": ["<keyword from JD not in CV>"] },
   "topActions": ["<action 1>", "<action 2>", "<action 3>"]
 }`;
 
       const raw = await callPerplexity("sonar", [
-        { role: "system", content: "You are a professional CV scoring AI. Return valid JSON only." },
+        { role: "system", content: "You are a professional CV scoring AI. Return valid JSON only. Never search the web." },
         { role: "user", content: prompt },
-      ]);
+      ], 4, false);
 
       const parsed = JSON.parse(extractJSON(raw)) as FastScoreResult;
       const sessionId = nanoid();
@@ -418,6 +444,15 @@ Return this exact JSON:
 
       const prompt = `You are a senior career coach. Deep analysis. Return ONLY valid JSON.
 
+UPSKILLING HIERARCHY — recommend in this order:
+1. Skills that strengthen the candidate's ROLE and FUNCTION broadly — e.g. for a CSM: advanced CRM certifications, data analytics for customer success, stakeholder management frameworks, product-led growth
+2. Genuinely transferable skills across industries — SQL, Excel, project management (PMP/PRINCE2), AI tools directly relevant to their role
+3. Industry-specific qualifications ONLY if the role legally requires a licence to practise — e.g. CeMAP for mortgage advisors, FCA authorisation for financial advisors, SQE for solicitors
+NEVER recommend industry courses just because the target company operates in that sector — a CSM applying to a real estate firm does not need a real estate course.
+The "reason" field must explain why this skill helps their career broadly, not just for this one application.
+The "resource" must be a specific reputable course or certification (Coursera, LinkedIn Learning, CIPD, PMI, etc.) — never a generic suggestion.
+CONTENT GROUNDING: Only recommend upskilling for genuine gaps evidenced by comparing the CV to the JD. Do not invent missing skills.
+
 CV:
 ${cvText}
 
@@ -427,7 +462,7 @@ ${jdText}
 Return:
 {
   "upskilling": [
-    { "skill": "<skill>", "reason": "<why for this specific role>", "resource": "<specific course/cert/book>" },
+    { "skill": "<skill>", "reason": "<why this helps their career broadly>", "resource": "<specific course/cert with provider>" },
     { "skill": "<skill>", "reason": "<reason>", "resource": "<resource>" },
     { "skill": "<skill>", "reason": "<reason>", "resource": "<resource>" }
   ],
@@ -450,9 +485,9 @@ Return:
 }`;
 
       const raw = await callPerplexity("sonar-pro", [
-        { role: "system", content: "You are a senior career coach. Return valid JSON only." },
+        { role: "system", content: "You are a senior career coach. Return valid JSON only. Never search the web." },
         { role: "user", content: prompt },
-      ]);
+      ], 4, false);
 
       const parsed = JSON.parse(extractJSON(raw));
 
@@ -543,6 +578,8 @@ IMPORTANT JSON RULES:
 - Use double quotes for all strings
 - No newlines inside string values - use spaces
 - No truncation - complete all paragraphs fully
+
+STRICT GROUNDING RULE: Every claim in the cover letter must be traceable to the candidate's CV. Do not mention languages they have not listed, qualifications they do not hold, skills they have not demonstrated, or future aspirations. Do not pad with generic soft skills. Each paragraph must reference a specific achievement, role, or skill from the CV. If the CV is thin, write a shorter honest letter — do not invent content.
 
 CV:
 ${cvText.slice(0, 3000)}
@@ -1538,6 +1575,125 @@ Return ONLY valid JSON:
 
       const parsed = JSON.parse(extractJSON(raw));
       res.json(parsed);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── CV Word export (.docx) ──────────────────────────────────────────────────
+  app.post("/api/cv/export-docx", generalLimiter, async (req, res) => {
+    try {
+      const { rewrittenCV: cv, candidateName } = req.body as { rewrittenCV: any; candidateName?: string };
+      if (!cv) return res.status(400).json({ error: "rewrittenCV required" });
+
+      const name = (candidateName || cv.name || "CV").replace(/[^a-z0-9 ]/gi, "").trim();
+
+      const sectionHeader = (text: string) =>
+        new Paragraph({
+          children: [new TextRun({ text, bold: true, size: 20, allCaps: true, color: "2563EB" })],
+          spacing: { before: 280, after: 80 },
+          border: { bottom: { style: "single", size: 4, color: "BFDBFE", space: 1 } },
+        });
+
+      const children: any[] = [
+        new Paragraph({
+          children: [new TextRun({ text: cv.name || "", bold: true, size: 36 })],
+          spacing: { after: 80 },
+        }),
+        ...(cv.tagline ? [new Paragraph({
+          children: [new TextRun({ text: cv.tagline, size: 24, color: "2563EB" })],
+          spacing: { after: 80 },
+        })] : []),
+        ...(cv.contact ? [new Paragraph({
+          children: [new TextRun({ text: cv.contact, size: 20, color: "666666" })],
+          spacing: { after: 300 },
+        })] : []),
+        sectionHeader("Professional Summary"),
+        new Paragraph({
+          children: [new TextRun({ text: cv.summary || "", size: 22 })],
+          spacing: { after: 200 },
+        }),
+        sectionHeader("Skills"),
+        new Paragraph({
+          children: [new TextRun({ text: (cv.skills as string[] || []).join(" • "), size: 22 })],
+          spacing: { after: 200 },
+        }),
+        sectionHeader("Experience"),
+        ...(cv.experience as any[] || []).flatMap((exp: any) => [
+          new Paragraph({
+            children: [
+              new TextRun({ text: exp.title || "", bold: true, size: 22 }),
+              new TextRun({ text: "  |  " + (exp.company || ""), size: 22 }),
+              new TextRun({ text: "  " + (exp.dates || ""), size: 20, color: "888888" }),
+            ],
+            spacing: { after: 60 },
+          }),
+          ...(exp.bullets as string[] || []).map((b: string) =>
+            new Paragraph({
+              children: [new TextRun({ text: "•  " + b, size: 20 })],
+              indent: { left: 360 },
+              spacing: { after: 60 },
+            })
+          ),
+          new Paragraph({ children: [], spacing: { after: 120 } }),
+        ]),
+        sectionHeader("Education"),
+        ...(cv.education as any[] || []).map((e: any) =>
+          new Paragraph({
+            children: [
+              new TextRun({ text: e.degree || "", bold: true, size: 22 }),
+              new TextRun({ text: "  |  " + (e.institution || ""), size: 22 }),
+              new TextRun({ text: "  " + (e.dates || ""), size: 20, color: "888888" }),
+            ],
+            spacing: { after: 120 },
+          })
+        ),
+        ...((cv.extras as string[] || []).length > 0 ? [
+          sectionHeader("Additional"),
+          ...(cv.extras as string[]).map((e: string) =>
+            new Paragraph({
+              children: [new TextRun({ text: "•  " + e, size: 20 })],
+              indent: { left: 360 },
+              spacing: { after: 60 },
+            })
+          ),
+        ] : []),
+      ];
+
+      const doc = new Document({ sections: [{ properties: {}, children }] });
+      const buffer = await Packer.toBuffer(doc);
+      const safeName = name.toLowerCase().replace(/\s+/g, "-").slice(0, 40);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      res.setHeader("Content-Disposition", `attachment; filename="cv-${safeName}.docx"`);
+      res.send(buffer);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Cover letter Word export (.docx) ────────────────────────────────────────
+  app.post("/api/cover-letter/export-docx", generalLimiter, async (req, res) => {
+    try {
+      const { coverLetterText, tone, candidateName } = req.body as { coverLetterText: string; tone?: string; candidateName?: string };
+      if (!coverLetterText) return res.status(400).json({ error: "coverLetterText required" });
+
+      const lines = coverLetterText.split("\n");
+      const children: any[] = [
+        new Paragraph({ children: [], spacing: { after: 600 } }),
+        ...lines.map((line: string) =>
+          new Paragraph({
+            children: [new TextRun({ text: line, size: 22 })],
+            spacing: { after: line.trim() === "" ? 0 : 200 },
+          })
+        ),
+      ];
+
+      const doc = new Document({ sections: [{ properties: {}, children }] });
+      const buffer = await Packer.toBuffer(doc);
+      const safeTone = (tone || "cover-letter").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      res.setHeader("Content-Disposition", `attachment; filename="cover-letter-${safeTone}.docx"`);
+      res.send(buffer);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

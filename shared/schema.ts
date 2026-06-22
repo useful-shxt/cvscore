@@ -66,6 +66,7 @@ export interface CategoryScore {
 
 export interface FastScoreResult {
   overallScore: number;
+  domainMatch?: "strong" | "partial" | "weak";
   categories: CategoryScore[];
   keywords: { matched: string[]; missing: string[] };
   topActions: string[];

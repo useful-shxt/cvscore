@@ -192,12 +192,35 @@ function UploadZone({ onText, disabled, onUploadSuccess }: { onText: (t: string)
 // ─── Cover Letter Card ─────────────────────────────────────────────────────────
 function CoverLetterCard({ letter }: { letter: CoverLetter }) {
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const fullText = [letter.salutation, "", ...letter.paragraphs, "", letter.sign].join("\n");
   const toneId = letter.tone.toLowerCase().replace(/[^a-z]+/g, "-");
   const copy = async () => {
     await navigator.clipboard.writeText(fullText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+  const downloadWord = async () => {
+    setDownloading(true);
+    try {
+      const res = await fetch("/api/cover-letter/export-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ coverLetterText: fullText, tone: letter.tone }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cover-letter-${toneId}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch { /* silent */ } finally {
+      setDownloading(false);
+    }
   };
   return (
     <div className="rounded-xl border border-[#2A3558] bg-[#1A2340] overflow-hidden">
@@ -206,9 +229,14 @@ function CoverLetterCard({ letter }: { letter: CoverLetter }) {
           <span className="font-display font-semibold text-white text-sm">{letter.tone}</span>
           <p className="text-xs text-[#8895B3] mt-0.5">{letter.desc}</p>
         </div>
-        <Button size="sm" variant="ghost" onClick={copy} data-testid={`button-copy-${toneId}`} className="text-xs text-[#8895B3] hover:text-white">
-          {copied ? "Copied!" : "Copy"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={downloadWord} disabled={downloading} className="text-xs text-[#8895B3] hover:text-white">
+            {downloading ? "Exporting..." : "↓ Word"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={copy} data-testid={`button-copy-${toneId}`} className="text-xs text-[#8895B3] hover:text-white">
+            {copied ? "Copied!" : "Copy"}
+          </Button>
+        </div>
       </div>
       <div className="p-5 bg-white rounded-b-xl">
         <p className="text-sm text-gray-800 mb-4">{letter.salutation}</p>
@@ -222,8 +250,13 @@ function CoverLetterCard({ letter }: { letter: CoverLetter }) {
 }
 
 // ─── Rewrite Panel ─────────────────────────────────────────────────────────────
-function RewritePanel({ rewrite, companyIntel }: { rewrite: RewriteResult; companyIntel: string }) {
+function RewritePanel({ rewrite, companyIntel, diffResult }: {
+  rewrite: RewriteResult;
+  companyIntel: string;
+  diffResult?: { original: { overall: number }; optimised: { overall: number }; delta: number; biggestGain: string; summary: string } | null;
+}) {
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const plainText = [
     rewrite.name, rewrite.tagline, rewrite.contact, "",
     "PROFESSIONAL SUMMARY", rewrite.summary, "",
@@ -241,8 +274,48 @@ function RewritePanel({ rewrite, companyIntel }: { rewrite: RewriteResult; compa
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const downloadWord = async () => {
+    setDownloading(true);
+    try {
+      const res = await fetch("/api/cv/export-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rewrittenCV: rewrite, candidateName: rewrite.name }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cv-${rewrite.name.toLowerCase().replace(/\s+/g, "-")}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch { /* silent */ } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
+      {/* Before/after score comparison */}
+      {diffResult && (
+        <div className="rounded-xl border border-green-500/20 bg-gradient-to-r from-green-500/5 to-blue-500/5 p-4 flex items-center gap-4">
+          <div className="text-center flex-1">
+            <p className="text-[10px] font-semibold text-[#8895B3] uppercase tracking-wider mb-1">Original</p>
+            <p className="text-2xl font-bold text-amber-400">{diffResult.original.overall}</p>
+          </div>
+          <div className="text-center px-4">
+            <p className="text-2xl font-bold text-green-400">↑ +{diffResult.delta}</p>
+            <p className="text-[10px] text-[#8895B3] mt-0.5 max-w-[120px] leading-tight">{diffResult.biggestGain}</p>
+          </div>
+          <div className="text-center flex-1">
+            <p className="text-[10px] font-semibold text-[#8895B3] uppercase tracking-wider mb-1">Optimised</p>
+            <p className="text-2xl font-bold text-green-400">{diffResult.optimised.overall}</p>
+          </div>
+        </div>
+      )}
       {companyIntel && (
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
           <p className="text-xs font-semibold text-blue-400 mb-1.5">Company Intel</p>
@@ -252,9 +325,14 @@ function RewritePanel({ rewrite, companyIntel }: { rewrite: RewriteResult; compa
       <div className="rounded-xl border border-[#2A3558] overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#2A3558] bg-[#1A2340]">
           <span className="font-display font-semibold text-white text-sm">Optimised CV</span>
-          <Button size="sm" variant="ghost" onClick={copy} data-testid="button-copy-rewrite" className="text-xs text-[#8895B3] hover:text-white">
-            {copied ? "Copied!" : "Copy plain text"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={downloadWord} disabled={downloading} className="text-xs text-[#8895B3] hover:text-white">
+              {downloading ? "Exporting..." : "↓ Word"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={copy} data-testid="button-copy-rewrite" className="text-xs text-[#8895B3] hover:text-white">
+              {copied ? "Copied!" : "Copy text"}
+            </Button>
+          </div>
         </div>
         <div className="bg-white p-8 space-y-6">
           <div className="border-b border-gray-200 pb-5">
@@ -737,8 +815,7 @@ function TrackerPanel({ entries, onSelect }: { entries: TrackerEntry[]; onSelect
           >
             <MiniScoreRing score={entry.score} />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">{entry.jobTitle}</p>
-              <p className="text-xs text-white/40 truncate">{entry.companyName}</p>
+              <p className="text-sm font-semibold text-white truncate">{entry.jobTitle} at {entry.companyName}</p>
               <p className="text-xs text-white/30 mt-0.5">{date}</p>
             </div>
             <div className="text-right flex-shrink-0">
@@ -1103,6 +1180,7 @@ export default function Home() {
   const [linkedinText, setLinkedinText] = useState("");
   const [score, setScore] = useState<ScoreState>({ fast: null, deep: null, sessionId: null, deepLoading: false });
   const [rewrite, setRewrite] = useState<{ data: RewriteResult; intel: string } | null>(null);
+  const [diffResult, setDiffResult] = useState<{ original: { overall: number }; optimised: { overall: number }; delta: number; biggestGain: string; summary: string } | null>(null);
   const [coverLetters, setCoverLetters] = useState<CoverLetter[] | null>(null);
   const [linkedinAnalysis, setLinkedinAnalysis] = useState<LinkedInAnalysisResult | null>(null);
   const [companyIntel, setCompanyIntel] = useState<CompanyIntelResult | null>(null);
@@ -1278,6 +1356,23 @@ export default function Home() {
     onSuccess: (data) => {
       setRewrite({ data: data.rewrite, intel: data.companyIntel });
       setOutputTab("rewrite");
+      // Fire differential score comparison in background
+      const rv = data.rewrite;
+      const optimisedText = [
+        rv.name, rv.tagline, rv.contact, "",
+        "PROFESSIONAL SUMMARY", rv.summary, "",
+        "SKILLS", rv.skills.join(" • "), "",
+        "EXPERIENCE",
+        ...rv.experience.flatMap((exp: any) => [`${exp.title} | ${exp.company} | ${exp.dates}`, ...exp.bullets.map((b: string) => `• ${b}`), ""]),
+        "EDUCATION",
+        ...rv.education.map((e: any) => `${e.degree} | ${e.institution} | ${e.dates}`),
+        ...(rv.extras?.length ? ["", "ADDITIONAL", ...rv.extras] : []),
+      ].join("\n");
+      fetch("/api/cv/differential", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ originalCV: cvText, optimisedCV: optimisedText, jobDescription: jdText }),
+      }).then(r => r.ok ? r.json() : null).then(d => { if (d) setDiffResult(d); }).catch(() => {});
     },
     onError: (err: any) => {
       toast({ title: "Rewrite failed", description: err.message, variant: "destructive" });
@@ -1333,6 +1428,7 @@ export default function Home() {
     setStage("input");
     setScore({ fast: null, deep: null, sessionId: null, deepLoading: false });
     setRewrite(null);
+    setDiffResult(null);
     setCoverLetters(null);
     setLinkedinAnalysis(null);
     setOutputTab("score");
@@ -1425,6 +1521,19 @@ export default function Home() {
           <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-4 md:p-6 flex flex-col md:flex-row items-center gap-4 md:gap-8">
             <ScoreDial score={fast.overallScore} />
             <div className="flex-1 space-y-3">
+              {fast.domainMatch && (
+                <div className={`rounded-lg px-3 py-2 text-xs font-medium ${
+                  fast.domainMatch === "strong"
+                    ? "bg-green-500/10 border border-green-500/20 text-green-400"
+                    : fast.domainMatch === "partial"
+                    ? "bg-blue-500/10 border border-blue-500/20 text-blue-300"
+                    : "bg-amber-500/10 border border-amber-500/20 text-amber-400"
+                }`}>
+                  {fast.domainMatch === "strong" && "✓ Direct industry match"}
+                  {fast.domainMatch === "partial" && "↗ Transferable match — strong role experience applies across industries"}
+                  {fast.domainMatch === "weak" && "⚠ Industry mismatch — no direct industry experience. Score reflects transferable skills only."}
+                </div>
+              )}
               <p className="text-white/70 text-sm leading-relaxed">{fast.summary}</p>
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Top Actions</p>
@@ -1542,7 +1651,7 @@ export default function Home() {
             {/* CV Rewrite */}
             <TabsContent value="rewrite" className="mt-4">
               {rewrite ? (
-                <RewritePanel rewrite={rewrite.data} companyIntel={rewrite.intel} />
+                <RewritePanel rewrite={rewrite.data} companyIntel={rewrite.intel} diffResult={diffResult} />
               ) : (
                 <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-10 text-center space-y-4">
                   <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center mx-auto">
