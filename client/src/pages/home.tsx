@@ -899,7 +899,7 @@ function ReturnDashboard({
             <div className="flex items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">
-                  {last.jobTitle} at {last.companyName}
+                  {last.jobTitle || "Unknown Role"} at {last.companyName || "Unknown Company"}
                 </p>
                 <p className="text-xs text-[#3D4F6E] mt-0.5">{fmt(last.createdAt)}</p>
               </div>
@@ -939,21 +939,22 @@ function ReturnDashboard({
           <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5">
             <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider mb-3">Recent applications</p>
             <div className="space-y-1">
-              {trackerEntries.map((entry) => (
+              {trackerEntries.slice(1).map((entry) => (
                 <button
                   key={entry.sessionId}
                   onClick={() => onLoadSession(entry)}
-                  className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg hover:bg-[#1A2340] transition-colors text-left group"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#1A2340] transition-colors text-left group"
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-white truncate group-hover:text-blue-300 transition-colors">
-                      {entry.jobTitle} at {entry.companyName}
+                      {entry.jobTitle || "Unknown Role"} at {entry.companyName || "Unknown Company"}
                     </p>
                     <p className="text-xs text-[#3D4F6E]">{fmt(entry.createdAt)}</p>
                   </div>
                   <span className="text-sm font-bold flex-shrink-0" style={{ color: col(entry.score) }}>
                     {entry.score}
                   </span>
+                  <span className="text-[#3D4F6E] group-hover:text-blue-400 transition-colors flex-shrink-0 text-sm">→</span>
                 </button>
               ))}
             </div>
