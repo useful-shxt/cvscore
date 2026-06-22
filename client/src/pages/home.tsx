@@ -1118,13 +1118,16 @@ export default function Home() {
   // ── Auth rehydration on mount ────────────────────────────────────────────────
   useEffect(() => {
     async function rehydrate() {
-      // 1. Try localStorage (has full user JSON including email + name)
       try {
         const saved = localStorage.getItem("cvscore_user");
         if (saved) {
           const parsed = JSON.parse(saved) as AppUser;
-          if (parsed?.email && parsed?.name) {
-            const res = await apiRequest("POST", "/api/user/register", { email: parsed.email, name: parsed.name });
+          if (parsed?.email) {
+            const res = await fetch("/api/user/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: parsed.email, name: parsed.name || "User" }),
+            });
             if (res.ok) {
               const data = await res.json();
               setUser({ ...data.user, email: parsed.email });
@@ -1136,7 +1139,6 @@ export default function Home() {
         }
       } catch {}
 
-      // 2. Fall back to cookie (email only — pass placeholder name, server returns real name for existing users)
       try {
         const cookieEmail = document.cookie
           .split("; ")
@@ -1144,12 +1146,15 @@ export default function Home() {
           ?.split("=")[1];
         if (cookieEmail) {
           const email = decodeURIComponent(cookieEmail);
-          const res = await apiRequest("POST", "/api/user/register", { email, name: "User" });
+          const res = await fetch("/api/user/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, name: "User" }),
+          });
           if (res.ok) {
             const data = await res.json();
             setUser({ ...data.user, email });
             setIsNewUser(false);
-            // Refresh localStorage with the recovered data
             try { localStorage.setItem("cvscore_user", JSON.stringify({ ...data.user, email })); } catch {}
             setAuthChecked(true);
             return;
@@ -1208,8 +1213,14 @@ export default function Home() {
   const handleUser = (u: AppUser, isNew: boolean) => {
     setUser(u);
     setIsNewUser(isNew);
-    try { localStorage.setItem("cvscore_user", JSON.stringify(u)); } catch {}
+    try {
+      localStorage.setItem("cvscore_user", JSON.stringify(u));
+      console.log("[auth] saved to localStorage:", u.email);
+    } catch (e) {
+      console.warn("[auth] localStorage write failed:", e);
+    }
     document.cookie = `cvscore_email=${encodeURIComponent(u.email)}; max-age=${30 * 24 * 60 * 60}; path=/; SameSite=Lax`;
+    console.log("[auth] cookie set for:", u.email);
   };
 
   const fastScoreMutation = useMutation({
