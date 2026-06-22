@@ -1585,21 +1585,8 @@ export default function Home() {
 
   // ── Returning user dashboard
   const loadTrackerSession = (entry: TrackerEntry) => {
-    const fakeFast: FastScoreResult = {
-      overallScore: entry.score,
-      categories: (entry.categories || []).map((c) => ({
-        name: c.name as any,
-        score: c.score,
-        feedback: "",
-        suggestion: "",
-      })),
-      keywords: entry.keywords || { matched: [], missing: [] },
-      topActions: entry.topActions || [],
-      summary: `${entry.jobTitle} at ${entry.companyName} — Score: ${entry.score}/100`,
-    };
-    setScore({ fast: fakeFast, deep: null, sessionId: entry.sessionId, deepLoading: false });
-    setStage("results");
-    setOutputTab("score");
+    if (entry.cvText) setCvText(entry.cvText);
+    if (entry.jdText) setJdText(entry.jdText);
     setShowDashboard(false);
   };
 

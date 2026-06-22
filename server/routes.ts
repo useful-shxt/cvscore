@@ -322,6 +322,8 @@ Return ONLY valid JSON:
         keywords: s.keywords ? JSON.parse(s.keywords) : null,
         topActions: s.actions ? JSON.parse(s.actions) : [],
         categories: s.categories ? (JSON.parse(s.categories) as { name: string; score: number; feedback: string; suggestion: string }[]).map(c => ({ name: c.name, score: c.score })) : null,
+        cvText: s.cvText ? s.cvText.slice(0, 5000) : "",
+        jdText: s.jdText || "",
       }));
       res.json({ entries });
     } catch (err: any) {
@@ -389,7 +391,7 @@ Return this exact JSON:
   "topActions": ["<action 1>", "<action 2>", "<action 3>"]
 }`;
 
-      const raw = await callPerplexity("sonar", [
+      const raw = await callPerplexity("sonar-pro", [
         { role: "system", content: "You are a professional CV scoring AI. Return valid JSON only. Never search the web." },
         { role: "user", content: prompt },
       ], 4, false);

@@ -139,6 +139,8 @@ export interface TrackerEntry {
   keywords: { matched: string[]; missing: string[] } | null;
   topActions: string[];
   categories: { name: string; score: number }[] | null;
+  cvText?: string;
+  jdText?: string;
 }
 
 // Launch config — 6 weeks from first deploy
