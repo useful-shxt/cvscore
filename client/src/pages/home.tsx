@@ -1521,19 +1521,6 @@ export default function Home() {
           <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-4 md:p-6 flex flex-col md:flex-row items-center gap-4 md:gap-8">
             <ScoreDial score={fast.overallScore} />
             <div className="flex-1 space-y-3">
-              {fast.domainMatch && (
-                <div className={`rounded-lg px-3 py-2 text-xs font-medium ${
-                  fast.domainMatch === "strong"
-                    ? "bg-green-500/10 border border-green-500/20 text-green-400"
-                    : fast.domainMatch === "partial"
-                    ? "bg-blue-500/10 border border-blue-500/20 text-blue-300"
-                    : "bg-amber-500/10 border border-amber-500/20 text-amber-400"
-                }`}>
-                  {fast.domainMatch === "strong" && "✓ Direct industry match"}
-                  {fast.domainMatch === "partial" && "↗ Transferable match — strong role experience applies across industries"}
-                  {fast.domainMatch === "weak" && "⚠ Industry mismatch — no direct industry experience. Score reflects transferable skills only."}
-                </div>
-              )}
               <p className="text-white/70 text-sm leading-relaxed">{fast.summary}</p>
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Top Actions</p>
@@ -1546,6 +1533,30 @@ export default function Home() {
               </div>
             </div>
           </div>
+
+          {/* Domain match banner — standalone, full-width, below score hero */}
+          {fast.domainMatch === "weak" && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+              <span className="text-amber-400 text-base flex-shrink-0 mt-0.5">⚠️</span>
+              <p className="text-sm text-amber-300">
+                <span className="font-semibold">Industry mismatch</span> — score reflects transferable skills only, not direct industry experience.
+              </p>
+            </div>
+          )}
+          {fast.domainMatch === "partial" && (
+            <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 flex items-start gap-3">
+              <span className="text-blue-400 text-base flex-shrink-0 mt-0.5">↗</span>
+              <p className="text-sm text-blue-300">
+                <span className="font-semibold">Transferable match</span> — your {companyIntel?.jobTitle || "role"} experience applies across industries.
+              </p>
+            </div>
+          )}
+          {fast.domainMatch === "strong" && (
+            <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 flex items-start gap-3">
+              <span className="text-green-400 text-base flex-shrink-0 mt-0.5">✓</span>
+              <p className="text-sm text-green-300 font-semibold">Direct industry match.</p>
+            </div>
+          )}
 
           {/* Output tabs */}
           <Tabs value={outputTab} onValueChange={(v) => setOutputTab(v as any)}>
