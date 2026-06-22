@@ -15,7 +15,7 @@ function getKey(): string {
 export async function callClaude(
   prompt: string,
   system = "You are a helpful expert. Return valid JSON only.",
-  model: "claude-sonnet-4-20250514" | "claude-haiku-4-5-20251001" = "claude-sonnet-4-20250514",
+  model: "claude-sonnet-4-5" | "claude-haiku-4-5-20251001" = "claude-sonnet-4-5",
   maxTokens = 5000,
   retries = 3,
   imageBase64?: string,
@@ -85,7 +85,7 @@ export const callClaudeHaiku = (prompt: string, system?: string) =>
   callClaude(prompt, system, "claude-haiku-4-5-20251001", 2048);
 
 export const callClaudeSonnet = (prompt: string, system?: string, imageBase64?: string) =>
-  callClaude(prompt, system, "claude-sonnet-4-20250514", 5000, 3, imageBase64);
+  callClaude(prompt, system, "claude-sonnet-4-5", 5000, 3, imageBase64);
 
 /**
  * Fetch a public URL and extract clean text (for JD URL fetching)
