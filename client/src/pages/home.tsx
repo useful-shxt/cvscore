@@ -740,8 +740,26 @@ function QAPanel({ cvText, jdText }: { cvText: string; jdText: string }) {
       {/* Add questions */}
       {!result && (
         <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-4">
-          <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Application Questions</p>
-          <p className="text-xs text-[#8895B3]">Paste each application form question. Claude will write tailored answers using your CV and the job description.</p>
+          <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">Application Q&amp;A</p>
+
+          {/* Empty state — explains the two-step flow */}
+          {questions.length === 0 && (
+            <div className="bg-[#1A2340] rounded-xl p-4 space-y-3">
+              <p className="text-sm font-semibold text-white">How it works</p>
+              <div className="space-y-2.5">
+                {[
+                  { n: "1", text: "Paste each question from the application form into the box below and click Add question." },
+                  { n: "2", text: "Add as many questions as you need (up to 10). Set a word limit if the form specifies one." },
+                  { n: "3", text: "Click Generate answers — Claude writes tailored responses using your CV and the job description." },
+                ].map(({ n, text }) => (
+                  <div key={n} className="flex gap-3">
+                    <span className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{n}</span>
+                    <p className="text-sm text-[#C8D4EE] leading-relaxed">{text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {questions.length > 0 && (
             <div className="space-y-2">
@@ -766,7 +784,7 @@ function QAPanel({ cvText, jdText }: { cvText: string; jdText: string }) {
               placeholder="Paste an application question here..."
               className="w-full bg-[#1A2340] border border-[#2A3558] rounded-lg text-white text-sm px-3 py-2.5 outline-none focus:border-blue-500/50 resize-none placeholder-[#3D4F6E]"
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
               <div>
                 <label className="text-xs text-[#8895B3] mb-1 block">Word limit (optional)</label>
                 <input
@@ -777,15 +795,13 @@ function QAPanel({ cvText, jdText }: { cvText: string; jdText: string }) {
                   className="w-full bg-[#1A2340] border border-[#2A3558] rounded-lg text-white text-sm px-3 py-2 outline-none focus:border-blue-500/50"
                 />
               </div>
-              <div className="flex items-end">
-                <button
-                  onClick={addQuestion}
-                  disabled={!newQuestion.trim()}
-                  className="w-full py-2 rounded-lg text-sm font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Add question
-                </button>
-              </div>
+              <button
+                onClick={addQuestion}
+                disabled={!newQuestion.trim()}
+                className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                + Add question
+              </button>
             </div>
             <div>
               <label className="text-xs text-[#8895B3] mb-1.5 block">Context to weave in (optional bullet points)</label>
@@ -1069,12 +1085,15 @@ export default function Home() {
 
   const linkedinMutation = useMutation({
     mutationFn: async () => {
-      if (!linkedinText.trim()) throw new Error("Please paste your LinkedIn profile text first");
+      const hasText = linkedinText.trim().length >= 50;
+      const hasCV = cvText.trim().length > 50;
+      if (!hasText && !hasCV) throw new Error("Paste your LinkedIn profile text below, or score your CV first to use CV-based mode");
       const res = await apiRequest("POST", "/api/linkedin/analyse", {
-        linkedinText,
+        linkedinText: hasText ? linkedinText : undefined,
         jdText,
         cvText: cvText || null,
         sessionId: score.sessionId,
+        useCV: !hasText && hasCV,
       });
       return res.json() as Promise<LinkedInAnalysisResult>;
     },
@@ -1412,8 +1431,26 @@ export default function Home() {
 
                   {/* Paste area */}
                   <div className="p-5 space-y-3">
+                    {/* CV-based shortcut — shown when CV is available but no LinkedIn text yet */}
+                    {cvText.trim().length > 50 && linkedinText.trim().length < 50 && (
+                      <div className="bg-blue-500/8 border border-blue-500/25 rounded-xl p-4 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">No LinkedIn profile? Use your CV</p>
+                          <p className="text-xs text-[#8895B3] mt-0.5">Claude will generate optimised LinkedIn content directly from your CV.</p>
+                        </div>
+                        <Button
+                          onClick={() => linkedinMutation.mutate()}
+                          disabled={linkedinMutation.isPending}
+                          className="flex-shrink-0 bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold px-4 py-2 h-auto"
+                        >
+                          {linkedinMutation.isPending
+                            ? <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing...</span>
+                            : "Analyse using my CV →"}
+                        </Button>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold text-white">Paste your LinkedIn profile here</p>
+                      <p className="text-xs font-semibold text-white">Or paste your LinkedIn profile here</p>
                       {linkedinText.trim().length > 50 && (
                         <span className="text-xs text-green-400">{linkedinText.split(/\s+/).length} words — looking good</span>
                       )}
@@ -1430,7 +1467,7 @@ export default function Home() {
                     )}
                     <Button
                       onClick={() => linkedinMutation.mutate()}
-                      disabled={linkedinMutation.isPending || linkedinText.trim().length < 50}
+                      disabled={linkedinMutation.isPending || (linkedinText.trim().length < 50 && cvText.trim().length <= 50)}
                       data-testid="button-analyse-linkedin"
                       className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
                     >
