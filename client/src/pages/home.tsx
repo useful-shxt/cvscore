@@ -1584,20 +1584,38 @@ export default function Home() {
   }
 
   // ── Returning user dashboard
-  const loadTrackerSession = (entry: TrackerEntry) => {
-    const restoredFast: FastScoreResult = {
-      overallScore: entry.score,
-      categories: (entry.categories || []).map((c) => ({
-        name: c.name as any,
-        score: c.score,
-        feedback: "",
-        suggestion: "",
-      })),
-      keywords: entry.keywords || { matched: [], missing: [] },
-      topActions: entry.topActions || [],
-      summary: `${entry.jobTitle} at ${entry.companyName} — Score: ${entry.score}/100`,
-    };
-    setScore({ fast: restoredFast, deep: null, sessionId: entry.sessionId, deepLoading: false });
+  const loadTrackerSession = async (entry: TrackerEntry) => {
+    let fastScore: FastScoreResult;
+    try {
+      const res = await fetch(`/api/session/${entry.sessionId}`);
+      if (res.ok) {
+        const data = await res.json();
+        fastScore = {
+          overallScore: data.overallScore,
+          categories: data.categories,
+          keywords: data.keywords,
+          topActions: data.topActions,
+          summary: data.summary,
+          domainMatch: data.domainMatch,
+        };
+      } else {
+        throw new Error("not found");
+      }
+    } catch {
+      fastScore = {
+        overallScore: entry.score,
+        categories: (entry.categories || []).map((c) => ({
+          name: c.name as any,
+          score: c.score,
+          feedback: "",
+          suggestion: "",
+        })),
+        keywords: entry.keywords || { matched: [], missing: [] },
+        topActions: entry.topActions || [],
+        summary: `${entry.jobTitle} at ${entry.companyName} — Score: ${entry.score}/100`,
+      };
+    }
+    setScore({ fast: fastScore, deep: null, sessionId: entry.sessionId, deepLoading: false });
     setStage("results");
     setOutputTab("score");
     setShowDashboard(false);

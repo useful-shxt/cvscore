@@ -292,10 +292,7 @@ Return ONLY valid JSON:
       if (hasShot) {
         raw = await callClaudeSonnet(prompt, system, screenshotBase64 as string);
       } else {
-        raw = await callPerplexity("sonar-pro", [
-          { role: "system", content: system },
-          { role: "user", content: prompt },
-        ], 4, false, 5000);
+        raw = await callClaudeSonnet(prompt, "You are an expert CV and career analyst. Return valid JSON only. Never invent experience or qualifications not present in the provided CV.");
       }
 
       const parsed = JSON.parse(extractJSON(raw));
@@ -313,21 +310,53 @@ Return ONLY valid JSON:
   app.get("/api/tracker/:userId", generalLimiter, async (req, res) => {
     try {
       const sessions = await storage.getRecentSessionsByUser(req.params.userId, 5);
-      const entries = sessions.map((s) => ({
-        sessionId: s.id,
-        jobTitle: s.jobTitle || "Unknown Role",
-        companyName: s.companyName || "Unknown Company",
-        score: s.score!,
-        createdAt: s.createdAt?.toISOString() || new Date().toISOString(),
-        keywords: s.keywords ? JSON.parse(s.keywords) : null,
-        topActions: s.actions ? JSON.parse(s.actions) : [],
-        categories: s.categories ? (JSON.parse(s.categories) as { name: string; score: number; feedback: string; suggestion: string }[]).map(c => ({ name: c.name, score: c.score })) : null,
-        cvText: s.cvText ? s.cvText.slice(0, 5000) : "",
-        jdText: s.jdText || "",
-      }));
+      const entries = sessions.map((s) => {
+        const actionsRaw = s.actions ? JSON.parse(s.actions) : null;
+        const topActions = Array.isArray(actionsRaw) ? actionsRaw : (actionsRaw?.topActions || []);
+        return {
+          sessionId: s.id,
+          jobTitle: s.jobTitle || "Unknown Role",
+          companyName: s.companyName || "Unknown Company",
+          score: s.score!,
+          createdAt: s.createdAt?.toISOString() || new Date().toISOString(),
+          keywords: s.keywords ? JSON.parse(s.keywords) : null,
+          topActions,
+          categories: s.categories ? (JSON.parse(s.categories) as { name: string; score: number; feedback: string; suggestion: string }[]).map(c => ({ name: c.name, score: c.score })) : null,
+          cvText: s.cvText ? s.cvText.slice(0, 5000) : "",
+          jdText: s.jdText || "",
+        };
+      });
       res.json({ entries });
     } catch (err: any) {
       console.error("Tracker error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Session restore ──────────────────────────────────────────────────────────
+  app.get("/api/session/:sessionId", generalLimiter, async (req, res) => {
+    try {
+      const session = await storage.getSession(req.params.sessionId as string);
+      if (!session) return res.status(404).json({ error: "Session not found" });
+
+      const actionsRaw = session.actions ? JSON.parse(session.actions) : null;
+      const topActions = Array.isArray(actionsRaw) ? actionsRaw : (actionsRaw?.topActions || []);
+      const summary = !Array.isArray(actionsRaw) && actionsRaw ? (actionsRaw.summary || null) : null;
+      const domainMatch = !Array.isArray(actionsRaw) && actionsRaw ? (actionsRaw.domainMatch || null) : null;
+
+      res.json({
+        sessionId: session.id,
+        overallScore: session.score,
+        categories: session.categories ? JSON.parse(session.categories) : [],
+        keywords: session.keywords ? JSON.parse(session.keywords) : { matched: [], missing: [] },
+        topActions,
+        summary: summary || `Score: ${session.score}/100`,
+        domainMatch: domainMatch || undefined,
+        cvText: session.cvText ? session.cvText.slice(0, 5000) : "",
+        jdText: session.jdText || "",
+      });
+    } catch (err: any) {
+      console.error("Session fetch error:", err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -391,10 +420,7 @@ Return this exact JSON:
   "topActions": ["<action 1>", "<action 2>", "<action 3>"]
 }`;
 
-      const raw = await callPerplexity("sonar-pro", [
-        { role: "system", content: "You are a professional CV scoring AI. Return valid JSON only. Never search the web." },
-        { role: "user", content: prompt },
-      ], 4, false);
+      const raw = await callClaudeSonnet(prompt, "You are an expert CV and career analyst. Return valid JSON only. Never invent experience or qualifications not present in the provided CV.");
 
       const parsed = JSON.parse(extractJSON(raw)) as FastScoreResult;
       const sessionId = nanoid();
@@ -409,7 +435,7 @@ Return this exact JSON:
         score: parsed.overallScore,
         categories: JSON.stringify(parsed.categories),
         keywords: JSON.stringify(parsed.keywords),
-        actions: JSON.stringify(parsed.topActions),
+        actions: JSON.stringify({ topActions: parsed.topActions, summary: parsed.summary, domainMatch: parsed.domainMatch }),
       });
 
       if (userId && typeof userId === "string") {
@@ -479,10 +505,7 @@ Return:
   "competitiveInsights": "<Who else is in the room — strong candidates for this role — how this CV compares honestly>"
 }`;
 
-      const raw = await callPerplexity("sonar-pro", [
-        { role: "system", content: "You are a senior career coach. Return valid JSON only. Never search the web." },
-        { role: "user", content: prompt },
-      ], 4, false);
+      const raw = await callClaudeSonnet(prompt, "You are an expert CV and career analyst. Return valid JSON only. Never invent experience or qualifications not present in the provided CV.");
 
       const parsed = JSON.parse(extractJSON(raw));
 
@@ -609,10 +632,7 @@ Return exactly:
   ]
 }`;
 
-      const raw = await callPerplexity("sonar-pro", [
-        { role: "system", content: "You are an expert cover letter writer. Return ONLY valid JSON. Complete all paragraphs. Never truncate." },
-        { role: "user", content: prompt },
-      ], 4, false, 3000);
+      const raw = await callClaudeSonnet(prompt, "You are an expert CV and career analyst. Return valid JSON only. Never invent experience or qualifications not present in the provided CV.");
 
       let jsonStr = extractJSON(raw);
       jsonStr = jsonStr.replace(/,(\s*[}\]])/g, "$1");

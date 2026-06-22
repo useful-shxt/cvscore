@@ -220,4 +220,14 @@ export const storage = {
     if (error) throw error;
     return (data || []).map(mapSession);
   },
+
+  async getSession(sessionId: string): Promise<Session | undefined> {
+    const { data, error } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapSession(data) : undefined;
+  },
 };
