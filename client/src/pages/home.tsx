@@ -847,6 +847,132 @@ function EmailSentBadge({ email }: { email: string }) {
   );
 }
 
+// ─── Return Dashboard ─────────────────────────────────────────────────────────
+function ReturnDashboard({
+  user,
+  trackerEntries,
+  onLoadSession,
+  onStartNew,
+}: {
+  user: AppUser;
+  trackerEntries: TrackerEntry[];
+  onLoadSession: (entry: TrackerEntry) => void;
+  onStartNew: () => void;
+}) {
+  const firstName = user.name.split(" ")[0];
+  const last = trackerEntries[0] ?? null;
+  const col = (s: number) => s >= 75 ? "#10B981" : s >= 50 ? "#F59E0B" : "#EF4444";
+  const lbl = (s: number) => s >= 75 ? "Strong" : s >= 50 ? "Good" : "Weak";
+  const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+  return (
+    <div className="min-h-screen bg-[#080D1A] font-sans">
+      <header className="border-b border-[#1A2340] px-6 py-3 flex items-center justify-between sticky top-0 bg-[#080D1A]/90 backdrop-blur z-40">
+        <div className="flex items-center gap-2.5">
+          <CVScoreLogo size={28} />
+          <span className="font-display font-semibold text-white">CVScore</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-[#8895B3]">{user.name}</span>
+          <button
+            onClick={() => { clearAuth(); window.location.reload(); }}
+            className="text-xs text-[#3D4F6E] hover:text-[#8895B3] transition-colors"
+          >
+            Not you?
+          </button>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-10 space-y-6">
+        {/* Welcome */}
+        <div>
+          <h1 className="font-display text-2xl font-bold text-white mb-1">
+            Welcome back, {firstName} 👋
+          </h1>
+          <p className="text-sm text-[#8895B3]">Pick up where you left off or score a new role.</p>
+        </div>
+
+        {/* Last session */}
+        {last ? (
+          <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5">
+            <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider mb-3">Last session</p>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">
+                  {last.jobTitle} at {last.companyName}
+                </p>
+                <p className="text-xs text-[#3D4F6E] mt-0.5">{fmt(last.createdAt)}</p>
+              </div>
+              <div
+                className="flex-shrink-0 w-12 h-12 rounded-xl flex flex-col items-center justify-center"
+                style={{ background: `${col(last.score)}22` }}
+              >
+                <span className="text-lg font-bold leading-none" style={{ color: col(last.score) }}>
+                  {last.score}
+                </span>
+                <span className="text-[9px] text-[#8895B3] mt-0.5">{lbl(last.score)}</span>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => onLoadSession(last)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-blue-500 hover:bg-blue-600 transition-colors"
+              >
+                View results
+              </button>
+              <button
+                onClick={onStartNew}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-[#8895B3] border border-[#2A3558] hover:text-white hover:border-blue-500/40 transition-colors"
+              >
+                Score a new role →
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5 text-center">
+            <p className="text-sm text-[#8895B3]">Loading your recent sessions…</p>
+          </div>
+        )}
+
+        {/* Recent applications — skip first entry since it's shown above */}
+        {trackerEntries.length > 1 && (
+          <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5">
+            <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider mb-3">Recent applications</p>
+            <div className="space-y-1">
+              {trackerEntries.map((entry) => (
+                <button
+                  key={entry.sessionId}
+                  onClick={() => onLoadSession(entry)}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg hover:bg-[#1A2340] transition-colors text-left group"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white truncate group-hover:text-blue-300 transition-colors">
+                      {entry.jobTitle} at {entry.companyName}
+                    </p>
+                    <p className="text-xs text-[#3D4F6E]">{fmt(entry.createdAt)}</p>
+                  </div>
+                  <span className="text-sm font-bold flex-shrink-0" style={{ color: col(entry.score) }}>
+                    {entry.score}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Bottom CTA */}
+        <button
+          onClick={onStartNew}
+          className="w-full py-3.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
+          style={{ background: "linear-gradient(135deg, #3B82F6, #8B5CF6)" }}
+        >
+          Score a new role →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 type AppStage = "input" | "scoring" | "results";
 
@@ -1188,6 +1314,7 @@ export default function Home() {
   const [outputTab, setOutputTab] = useState<"score" | "rewrite" | "cover" | "linkedin" | "tracker" | "qa">("score");
   const [jdHighlight, setJdHighlight] = useState(false);
   const [trackerEntries, setTrackerEntries] = useState<TrackerEntry[]>([]);
+  const [showDashboard, setShowDashboard] = useState(false);
   const jdCardRef = useRef<HTMLDivElement>(null);
   const jdTextareaRef = useRef<HTMLTextAreaElement>(null);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1213,6 +1340,7 @@ export default function Home() {
               const data = await res.json();
               setUser({ ...data.user, email: parsed.email });
               setIsNewUser(false);
+              if (data.user.runCount > 0) setShowDashboard(true);
               if (isReturning) {
                 window.history.replaceState({}, "", window.location.pathname + window.location.search + "#/cvscore");
               }
@@ -1239,6 +1367,7 @@ export default function Home() {
             const data = await res.json();
             setUser({ ...data.user, email });
             setIsNewUser(false);
+            if (data.user.runCount > 0) setShowDashboard(true);
             try { localStorage.setItem("cvscore_user", JSON.stringify({ ...data.user, email })); } catch {}
             if (isReturning) {
               window.history.replaceState({}, "", window.location.pathname + window.location.search + "#/cvscore");
@@ -1300,6 +1429,7 @@ export default function Home() {
   const handleUser = (u: AppUser, isNew: boolean) => {
     setUser(u);
     setIsNewUser(isNew);
+    if (!isNew && u.runCount > 0) setShowDashboard(true);
     try {
       localStorage.setItem("cvscore_user", JSON.stringify(u));
       console.log("[auth] saved to localStorage:", u.email);
@@ -1426,6 +1556,7 @@ export default function Home() {
 
   const reset = () => {
     setStage("input");
+    setShowDashboard(false);
     setScore({ fast: null, deep: null, sessionId: null, deepLoading: false });
     setRewrite(null);
     setDiffResult(null);
@@ -1450,6 +1581,37 @@ export default function Home() {
   // ── Email gate
   if (!user) {
     return <EmailGate onUser={handleUser} />;
+  }
+
+  // ── Returning user dashboard
+  const loadTrackerSession = (entry: TrackerEntry) => {
+    const fakeFast: FastScoreResult = {
+      overallScore: entry.score,
+      categories: (entry.categories || []).map((c) => ({
+        name: c.name as any,
+        score: c.score,
+        feedback: "",
+        suggestion: "",
+      })),
+      keywords: entry.keywords || { matched: [], missing: [] },
+      topActions: entry.topActions || [],
+      summary: `${entry.jobTitle} at ${entry.companyName} — Score: ${entry.score}/100`,
+    };
+    setScore({ fast: fakeFast, deep: null, sessionId: entry.sessionId, deepLoading: false });
+    setStage("results");
+    setOutputTab("score");
+    setShowDashboard(false);
+  };
+
+  if (showDashboard && stage === "input") {
+    return (
+      <ReturnDashboard
+        user={user}
+        trackerEntries={trackerEntries}
+        onLoadSession={loadTrackerSession}
+        onStartNew={() => setShowDashboard(false)}
+      />
+    );
   }
 
   // ── Scoring screen
