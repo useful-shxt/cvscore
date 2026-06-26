@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmailGate } from "@/components/EmailGate";
 import { LaunchBanner } from "@/components/LaunchBanner";
+import { OnboardingWizard } from "@sc/components/auth/OnboardingWizard";
+import type { WizardStep } from "@sc/components/auth/OnboardingWizard";
+import { DrillDownPanel } from "@sc/components/overlays/DrillDownPanel";
 import type {
   FastScoreResult,
   DeepAnalysisResult,
@@ -1469,6 +1472,8 @@ export default function Home() {
   const [jdHighlight, setJdHighlight] = useState(false);
   const [trackerEntries, setTrackerEntries] = useState<TrackerEntry[]>([]);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [showHowToExport, setShowHowToExport] = useState(false);
   const jdCardRef = useRef<HTMLDivElement>(null);
   const jdTextareaRef = useRef<HTMLTextAreaElement>(null);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1568,6 +1573,14 @@ export default function Home() {
       .catch(() => {});
   }, [user, score.fast]); // re-fetch after each new score
 
+  // Show wizard on first visit (localStorage key not yet set)
+  useEffect(() => {
+    if (!user) return;
+    try {
+      if (!localStorage.getItem("cvscore_wizard_seen")) setShowWizard(true);
+    } catch {}
+  }, [user]);
+
   // After PDF upload, scroll to JD and highlight it if JD is empty
   const handlePdfUploadSuccess = useCallback(() => {
     if (jdText.trim().length < 50) {
@@ -1593,6 +1606,77 @@ export default function Home() {
     document.cookie = `cvscore_email=${encodeURIComponent(u.email)}; max-age=${30 * 24 * 60 * 60}; path=/; SameSite=Lax`;
     console.log("[auth] cookie set for:", u.email);
   };
+
+  const handleWizardComplete = () => {
+    try { localStorage.setItem("cvscore_wizard_seen", "true"); } catch {}
+    setShowWizard(false);
+  };
+
+  const wizardSteps: WizardStep[] = [
+    {
+      label: "What It Does",
+      content: (
+        <div className="text-center space-y-4 py-4">
+          <div className="text-4xl">🎯</div>
+          <h3 className="font-display font-bold text-white text-lg">What CVScore Does</h3>
+          <p className="text-sm text-[#8895B3] leading-relaxed">Score your CV against any job description, get AI rewrites, cover letters, LinkedIn optimisation, and interview prep — all in one place.</p>
+        </div>
+      ),
+    },
+    {
+      label: "Score",
+      content: (
+        <div className="text-center space-y-4 py-4">
+          <div className="text-4xl">📊</div>
+          <h3 className="font-display font-bold text-white text-lg">Start Here → Score</h3>
+          <p className="text-sm text-[#8895B3] leading-relaxed">Paste your CV and a job description. We score the match and show you exactly what to improve — section by section.</p>
+        </div>
+      ),
+    },
+    {
+      label: "Rewrite",
+      content: (
+        <div className="text-center space-y-4 py-4">
+          <div className="text-4xl">✍️</div>
+          <h3 className="font-display font-bold text-white text-lg">Improve → Rewrite &amp; Cover Letter</h3>
+          <p className="text-sm text-[#8895B3] leading-relaxed">Get an AI-rewritten CV tailored to the role, plus a matching cover letter. Both exportable as Word docs you can edit.</p>
+        </div>
+      ),
+    },
+    {
+      label: "LinkedIn",
+      content: (
+        <div className="text-center space-y-4 py-4">
+          <div className="text-4xl">💼</div>
+          <h3 className="font-display font-bold text-white text-lg">Stand Out → LinkedIn</h3>
+          <p className="text-sm text-[#8895B3] leading-relaxed">Optimise your LinkedIn profile by pasting your text, uploading a screenshot, or uploading your full LinkedIn data export for the deepest analysis available — no other tool offers this.</p>
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
+            <p className="text-xs text-amber-400 leading-relaxed"><span className="font-bold">💡 Tip:</span> Download your LinkedIn data export before you start — it takes up to 24 hours for LinkedIn to prepare it.</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      label: "Interview",
+      content: (
+        <div className="text-center space-y-4 py-4">
+          <div className="text-4xl">🎤</div>
+          <h3 className="font-display font-bold text-white text-lg">Prepare → Interview Q&amp;A</h3>
+          <p className="text-sm text-[#8895B3] leading-relaxed">Generate interview questions specific to the role. Practise answers and get AI feedback. Regenerate any answer you want to improve.</p>
+        </div>
+      ),
+    },
+    {
+      label: "Track",
+      content: (
+        <div className="text-center space-y-4 py-4">
+          <div className="text-4xl">📈</div>
+          <h3 className="font-display font-bold text-white text-lg">Track Progress</h3>
+          <p className="text-sm text-[#8895B3] leading-relaxed">Every session is saved automatically. Come back anytime to see your history, compare scores, and track improvement over time.</p>
+        </div>
+      ),
+    },
+  ];
 
   const fastScoreMutation = useMutation({
     mutationFn: async () => {
@@ -2116,6 +2200,50 @@ export default function Home() {
                     </div>
                   </div>
 
+                  {/* Export description — only visible when export mode is active */}
+                  {linkedinMode === "export" && (
+                    <div className="p-5 border-b border-[#2A3558] space-y-4">
+                      <div>
+                        <h3 className="font-display font-bold text-white text-base">📦 LinkedIn Data Export Analysis</h3>
+                        <p className="text-sm text-[#8895B3] mt-1">The most comprehensive LinkedIn analysis available — powered by your own data export.</p>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        {["📈 Career Trajectory", "🛠️ Skills & Endorsements", "🌐 Network Strength"].map((chip) => (
+                          <span key={chip} className="text-xs bg-[#1A2340] border border-[#2A3558] rounded-full px-3 py-1.5 text-[#8895B3] font-medium">{chip}</span>
+                        ))}
+                      </div>
+                      <p className="text-sm text-[#8895B3] leading-relaxed">
+                        Upload your LinkedIn data export for insights no other tool can offer. Unlike pasted text, the export gives us your full career history, endorsed skills, network composition, recommendations, learning activity, and job search alignment — all as structured data for dramatically better analysis.
+                      </p>
+                      <button
+                        onClick={() => setShowHowToExport((v) => !v)}
+                        className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors font-medium"
+                      >
+                        📥 How to download your LinkedIn data
+                        <span className="text-xs text-[#3D4F6E]">{showHowToExport ? "▲" : "▼"}</span>
+                      </button>
+                      <DrillDownPanel open={showHowToExport} onClose={() => setShowHowToExport(false)}>
+                        <ol className="space-y-3 list-none">
+                          {[
+                            "Go to LinkedIn → Settings & Privacy",
+                            "Click 'Data Privacy' in the left menu",
+                            "Click 'Get a copy of your data'",
+                            "Select 'Download larger data archive' (not the basic one)",
+                            "Click 'Request archive'",
+                            "Wait for LinkedIn's email (can take up to 24 hours)",
+                            "Download the ZIP file from the email link",
+                            "Upload it here",
+                          ].map((step, i) => (
+                            <li key={i} className="flex gap-3 text-sm text-[#8895B3]">
+                              <span className="w-5 h-5 rounded-full bg-[#1A2340] border border-[#2A3558] flex items-center justify-center text-xs font-bold text-[#8895B3] flex-shrink-0 mt-0.5">{i + 1}</span>
+                              <span>{step}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      </DrillDownPanel>
+                    </div>
+                  )}
+
                   {/* Mode switcher */}
                   <div className="p-4 border-b border-[#2A3558] bg-[#080D1A]/40">
                     <div className="inline-flex rounded-xl border border-[#2A3558] bg-[#1A2340] p-1 gap-1">
@@ -2209,29 +2337,6 @@ export default function Home() {
                   ) : (
                     /* Export upload mode */
                     <div className="p-5 space-y-5">
-                      {/* How to export */}
-                      <div className="space-y-3">
-                        <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">How to download your LinkedIn export</p>
-                        <div className="space-y-2">
-                          {[
-                            { step: "1", title: "Go to LinkedIn Settings", detail: 'Click your profile photo → Settings & Privacy → Data privacy.' },
-                            { step: "2", title: "Request your data", detail: 'Click "Get a copy of your data" → select "Download larger data archive" → Request archive.' },
-                            { step: "3", title: "Wait for the email", detail: "LinkedIn emails you a download link (usually within 10 minutes)." },
-                            { step: "4", title: "Upload the ZIP here", detail: "Download the ZIP and upload it below — no need to unzip." },
-                          ].map(({ step, title, detail }) => (
-                            <div key={step} className="flex gap-3">
-                              <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <span className="text-white text-xs font-bold leading-none">{step}</span>
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-white">{title}</p>
-                                <p className="text-xs text-[#8895B3] mt-0.5 leading-relaxed">{detail}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
                       {/* File drop zone */}
                       <label
                         htmlFor="linkedin-zip-input"
@@ -2340,6 +2445,13 @@ export default function Home() {
             </div>
             <span className="text-xs text-[#8895B3]">{isNewUser ? "Welcome," : "Back,"} {user.name.split(" ")[0]}</span>
           </div>
+          <button
+            onClick={() => { try { localStorage.removeItem("cvscore_wizard_seen"); } catch {} setShowWizard(true); }}
+            className="w-7 h-7 rounded-full border border-[#2A3558] bg-[#0F1629] text-[#8895B3] hover:text-white hover:border-blue-500/40 text-xs font-bold transition-colors flex items-center justify-center"
+            title="How it works"
+          >
+            ?
+          </button>
           <button
             onClick={() => { clearAuth(); window.location.reload(); }}
             className="text-xs text-[#3D4F6E] hover:text-[#8895B3] transition-colors hidden sm:block"
@@ -2495,6 +2607,25 @@ export default function Home() {
           ))}
         </div>
       </div>
+
+      {/* Welcome wizard overlay */}
+      {showWizard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-lg">
+            <OnboardingWizard
+              steps={wizardSteps}
+              onComplete={handleWizardComplete}
+              completeLabel="Get Started →"
+            />
+            <button
+              onClick={handleWizardComplete}
+              className="w-full mt-3 text-center text-xs text-[#3D4F6E] hover:text-[#8895B3] transition-colors py-2"
+            >
+              Skip for now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
