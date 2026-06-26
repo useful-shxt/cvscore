@@ -11,6 +11,9 @@ import { LaunchBanner } from "@/components/LaunchBanner";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import type { WizardStep } from "@/components/OnboardingWizard";
 import { DrillDownPanel } from "@/components/DrillDownPanel";
+import { ModeSwitcher } from "@/components/ModeSwitcher";
+import { InlineSwapPanel } from "@/components/InlineSwapPanel";
+import { FileDropZone } from "@/components/FileDropZone";
 import type {
   FastScoreResult,
   DeepAnalysisResult,
@@ -1474,6 +1477,15 @@ export default function Home() {
   const [showDashboard, setShowDashboard] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showHowToExport, setShowHowToExport] = useState(false);
+  const [jdMode, setJdMode] = useState<"paste" | "url" | "screenshot">("paste");
+  const [jdUrl, setJdUrl] = useState("");
+  const [jdScreenshots, setJdScreenshots] = useState<File[]>([]);
+  const [jdMeta, setJdMeta] = useState<{ title?: string; company?: string; location?: string } | null>(null);
+  const [jdFetching, setJdFetching] = useState(false);
+  const [rewriteSwapOpen, setRewriteSwapOpen] = useState(false);
+  const [rewriteSwapLoading, setRewriteSwapLoading] = useState(false);
+  const [coverSwapOpen, setCoverSwapOpen] = useState(false);
+  const [coverSwapLoading, setCoverSwapLoading] = useState(false);
   const jdCardRef = useRef<HTMLDivElement>(null);
   const jdTextareaRef = useRef<HTMLTextAreaElement>(null);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1612,6 +1624,88 @@ export default function Home() {
     setShowWizard(false);
   };
 
+  const handleJdFetch = async () => {
+    if (!jdUrl.trim()) return;
+    setJdFetching(true);
+    try {
+      const res = await fetch("/api/jd/fetch-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: jdUrl.trim(), email: user?.email }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Couldn't extract job description", description: data.error || "Try pasting the text instead", variant: "destructive" });
+        return;
+      }
+      setJdText(data.description);
+      setJdMeta({ title: data.title, company: data.company, location: data.location });
+      setJdMode("paste");
+      setJdUrl("");
+    } catch {
+      toast({ title: "Extraction failed", description: "Try pasting the text instead", variant: "destructive" });
+    } finally {
+      setJdFetching(false);
+    }
+  };
+
+  const handleJdScreenshot = async () => {
+    if (!jdScreenshots.length) return;
+    setJdFetching(true);
+    try {
+      const form = new FormData();
+      jdScreenshots.forEach((f) => form.append("images", f));
+      if (user?.email) form.append("email", user.email);
+      const res = await fetch("/api/jd/extract-screenshot", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Couldn't read screenshots", description: data.error || "Try pasting the text instead", variant: "destructive" });
+        return;
+      }
+      setJdText(data.description);
+      setJdMeta({ title: data.title, company: data.company, location: data.location });
+      setJdMode("paste");
+      setJdScreenshots([]);
+    } catch {
+      toast({ title: "Extraction failed", description: "Try pasting the text instead", variant: "destructive" });
+    } finally {
+      setJdFetching(false);
+    }
+  };
+
+  const handleRewriteRegenerate = async (reason?: string) => {
+    if (!score) return;
+    setRewriteSwapLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/rewrite", {
+        cvText, jdText, sessionId: score.sessionId, userId: user?.id,
+        companyIntel: companyIntel ? JSON.stringify(companyIntel) : null, reason,
+      });
+      const data = await res.json() as any;
+      setRewrite({ data: data.rewrite, intel: data.companyIntel || "" });
+      setRewriteSwapOpen(false);
+    } catch (err: any) {
+      toast({ title: "Regenerate failed", description: err.message, variant: "destructive" });
+    } finally {
+      setRewriteSwapLoading(false);
+    }
+  };
+
+  const handleCoverRegenerate = async (reason?: string) => {
+    if (!score) return;
+    setCoverSwapLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/cover-letters", { cvText, jdText, sessionId: score.sessionId, reason });
+      const data = await res.json() as any;
+      setCoverLetters(data.coverLetters);
+      setCoverSwapOpen(false);
+    } catch (err: any) {
+      toast({ title: "Regenerate failed", description: err.message, variant: "destructive" });
+    } finally {
+      setCoverSwapLoading(false);
+    }
+  };
+
   const wizardSteps: WizardStep[] = [
     {
       label: "What It Does",
@@ -1629,7 +1723,7 @@ export default function Home() {
         <div className="text-center space-y-4 py-4">
           <div className="text-4xl">📊</div>
           <h3 className="font-display font-bold text-white text-lg">Start Here → Score</h3>
-          <p className="text-sm text-[#8895B3] leading-relaxed">Paste your CV and a job description. We score the match and show you exactly what to improve — section by section.</p>
+          <p className="text-sm text-[#8895B3] leading-relaxed">Paste your CV and a job description — or just paste a job listing URL and we'll extract it automatically. On mobile? Screenshot the listing and upload it. We'll score the match and show you exactly what to improve.</p>
         </div>
       ),
     },
@@ -2102,7 +2196,21 @@ export default function Home() {
             {/* CV Rewrite */}
             <TabsContent value="rewrite" className="mt-4">
               {rewrite ? (
-                <RewritePanel rewrite={rewrite.data} companyIntel={rewrite.intel} diffResult={diffResult} />
+                <div className="space-y-4">
+                  <RewritePanel rewrite={rewrite.data} companyIntel={rewrite.intel} diffResult={diffResult} />
+                  <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] px-5 py-4">
+                    <InlineSwapPanel
+                      id="rewrite-regen"
+                      isOpen={rewriteSwapOpen}
+                      onToggle={() => setRewriteSwapOpen((v) => !v)}
+                      onSwap={handleRewriteRegenerate}
+                      loading={rewriteSwapLoading}
+                      triggerLabel="🔄 Regenerate"
+                      confirmLabel="Regenerate CV"
+                      reasonPlaceholder="e.g. Make it more technical, focus on leadership, shorter summary..."
+                    />
+                  </div>
+                </div>
               ) : (
                 <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-10 text-center space-y-4">
                   <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center mx-auto">
@@ -2137,7 +2245,21 @@ export default function Home() {
             {/* Cover Letters */}
             <TabsContent value="cover" className="mt-4">
               {coverLetters ? (
-                <div className="space-y-4">{coverLetters.map((letter, i) => <CoverLetterCard key={i} letter={letter} />)}</div>
+                <div className="space-y-4">
+                  {coverLetters.map((letter, i) => <CoverLetterCard key={i} letter={letter} />)}
+                  <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] px-5 py-4">
+                    <InlineSwapPanel
+                      id="cover-regen"
+                      isOpen={coverSwapOpen}
+                      onToggle={() => setCoverSwapOpen((v) => !v)}
+                      onSwap={handleCoverRegenerate}
+                      loading={coverSwapLoading}
+                      triggerLabel="🔄 Regenerate"
+                      confirmLabel="Regenerate Letters"
+                      reasonPlaceholder="e.g. More formal tone, mention specific project, shorter..."
+                    />
+                  </div>
+                </div>
               ) : (
                 <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-10 text-center space-y-4">
                   <div className="w-16 h-16 rounded-2xl bg-purple-500/10 flex items-center justify-center mx-auto">
@@ -2547,17 +2669,79 @@ export default function Home() {
               )}
             </div>
           </div>
-          <Textarea
-            ref={jdTextareaRef}
-            value={jdText}
-            onChange={(e) => setJdText(e.target.value)}
-            placeholder="Paste the full job description here — more detail = better score and company intelligence..."
-            data-testid="textarea-jd"
-            className={`min-h-[140px] bg-[#1A2340] text-white placeholder:text-white/40 text-sm resize-none transition-colors ${
-              jdHighlight ? "border-blue-500" : "border-[#2A3558] focus:border-blue-500"
-            }`}
+
+          <ModeSwitcher
+            modes={[
+              { value: "paste", label: "📝 Paste Text" },
+              { value: "url", label: "🔗 Paste URL" },
+              { value: "screenshot", label: "📸 Screenshot" },
+            ]}
+            value={jdMode}
+            onChange={(v) => setJdMode(v as "paste" | "url" | "screenshot")}
           />
-          {jdText && <p className="text-xs text-[#8895B3]">{jdText.split(/\s+/).length} words</p>}
+
+          {jdMeta && (
+            <div className="flex flex-wrap gap-2">
+              {jdMeta.title && <span className="text-xs bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-full px-2.5 py-1">{jdMeta.title}</span>}
+              {jdMeta.company && <span className="text-xs bg-[#1A2340] border border-[#2A3558] text-[#8895B3] rounded-full px-2.5 py-1">{jdMeta.company}</span>}
+              {jdMeta.location && <span className="text-xs bg-[#1A2340] border border-[#2A3558] text-[#8895B3] rounded-full px-2.5 py-1">📍 {jdMeta.location}</span>}
+            </div>
+          )}
+
+          {jdMode === "paste" && (
+            <>
+              <Textarea
+                ref={jdTextareaRef}
+                value={jdText}
+                onChange={(e) => setJdText(e.target.value)}
+                placeholder="Paste the full job description here — more detail = better score and company intelligence..."
+                data-testid="textarea-jd"
+                className={`min-h-[140px] bg-[#1A2340] text-white placeholder:text-white/40 text-sm resize-none transition-colors ${
+                  jdHighlight ? "border-blue-500" : "border-[#2A3558] focus:border-blue-500"
+                }`}
+              />
+              {jdText && <p className="text-xs text-[#8895B3]">{jdText.split(/\s+/).length} words</p>}
+            </>
+          )}
+
+          {jdMode === "url" && (
+            <div className="space-y-3">
+              <input
+                type="url"
+                value={jdUrl}
+                onChange={(e) => setJdUrl(e.target.value)}
+                placeholder="Paste a job listing URL (LinkedIn, Indeed, Glassdoor, Reed...)"
+                className="w-full bg-[#1A2340] border border-[#2A3558] rounded-lg text-white text-sm px-3 py-2.5 outline-none focus:border-blue-500/50 placeholder-[#3D4F6E]"
+                onKeyDown={(e) => { if (e.key === "Enter" && jdUrl.trim()) handleJdFetch(); }}
+              />
+              <p className="text-xs text-[#8895B3]">We'll extract the job description automatically.</p>
+              <Button
+                onClick={handleJdFetch}
+                disabled={!jdUrl.trim() || jdFetching}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
+              >
+                {jdFetching
+                  ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Extracting...</span>
+                  : "Extract Job Description →"}
+              </Button>
+            </div>
+          )}
+
+          {jdMode === "screenshot" && (
+            <div className="space-y-3">
+              <FileDropZone files={jdScreenshots} onChange={setJdScreenshots} maxFiles={4} />
+              <p className="text-xs text-[#8895B3]">Screenshot the job listing from your phone or laptop — upload up to 4 images to capture the full description.</p>
+              <Button
+                onClick={handleJdScreenshot}
+                disabled={!jdScreenshots.length || jdFetching}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
+              >
+                {jdFetching
+                  ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Reading screenshots...</span>
+                  : `Extract from ${jdScreenshots.length} Screenshot${jdScreenshots.length !== 1 ? "s" : ""} →`}
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Company intel preview on input screen */}

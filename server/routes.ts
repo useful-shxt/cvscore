@@ -708,7 +708,7 @@ Return:
   // ── CV Rewrite ──────────────────────────────────────────────────────────────
   app.post("/api/rewrite", aiLimiter, async (req, res) => {
     try {
-      const { cvText, jdText, sessionId, userId, companyIntel } = req.body;
+      const { cvText, jdText, sessionId, userId, companyIntel, reason } = req.body;
       if (!cvText || !jdText) return res.status(400).json({ error: "cvText and jdText required" });
       if (typeof cvText !== "string" || typeof jdText !== "string")
         return res.status(400).json({ error: "Invalid input types" });
@@ -716,6 +716,7 @@ Return:
       if (jdText.length > MAX_JD_LEN) return res.status(400).json({ error: "JD text too long" });
 
       const intelContext = companyIntel ? `\nCOMPANY CONTEXT:\n${companyIntel}` : "";
+      const reasonContext = reason && typeof reason === "string" ? `\n\nAdditional instruction: ${String(reason).slice(0, 500)}` : "";
 
       const prompt = `Rewrite this CV to be perfectly optimised for the job description. Return ONLY valid JSON.
 
@@ -724,7 +725,7 @@ ${cvText}
 
 TARGET JOB DESCRIPTION:
 ${jdText}
-${intelContext}
+${intelContext}${reasonContext}
 
 Return this exact JSON:
 {
@@ -768,12 +769,14 @@ Return this exact JSON:
   // ── Cover Letters ───────────────────────────────────────────────────────────
   app.post("/api/cover-letters", aiLimiter, async (req, res) => {
     try {
-      const { cvText, jdText, sessionId } = req.body;
+      const { cvText, jdText, sessionId, reason } = req.body;
       if (!cvText || !jdText) return res.status(400).json({ error: "cvText and jdText required" });
       if (typeof cvText !== "string" || typeof jdText !== "string")
         return res.status(400).json({ error: "Invalid input types" });
       if (cvText.length > MAX_CV_LEN) return res.status(400).json({ error: "CV text too long" });
       if (jdText.length > MAX_JD_LEN) return res.status(400).json({ error: "JD text too long" });
+
+      const coverReasonContext = reason && typeof reason === "string" ? `\n\nAdditional instruction: ${String(reason).slice(0, 500)}\n` : "";
 
       const prompt = `Write 3 cover letter variations. Return ONLY valid JSON. No markdown.
 
@@ -789,7 +792,7 @@ ${cvText.slice(0, 3000)}
 
 JOB DESCRIPTION:
 ${jdText.slice(0, 1500)}
-
+${coverReasonContext}
 Return exactly:
 {
   "coverLetters": [
@@ -917,7 +920,7 @@ Return exactly:
 
   const TOKEN_COSTS: Record<string, number> = {
     cv_score: 2, cv_rewrite: 8, cover_letter: 5, interview_prep: 6,
-    linkedin: 10, linkedin_export: 10, salary: 5, predict: 3, fitplan: 15, jd_fetch: 1,
+    linkedin: 10, linkedin_export: 10, salary: 5, predict: 3, fitplan: 15, jd_fetch: 1, jd_extract: 1,
   };
 
   async function logToken(email: string | undefined, action: string) {
@@ -964,6 +967,93 @@ Return exactly:
     } catch (err: any) {
       // Return fallback:true so client shows paste field instead
       res.status(422).json({ error: err.message, fallback: true });
+    }
+  });
+
+  // ── JD URL fetch via Perplexity (structured extraction) ───────────────────────
+  app.post("/api/jd/fetch-url", generalLimiter, async (req, res) => {
+    try {
+      const { url, email } = req.body;
+      if (!url || typeof url !== "string") return res.status(400).json({ error: "url required" });
+      if (!/^https?:\/\//i.test(url.trim())) return res.status(400).json({ error: "Invalid URL — must start with http:// or https://" });
+
+      const raw = await callPerplexity("sonar-pro", [
+        { role: "system", content: 'Extract the full job description from this URL. Return JSON only: { "title": string, "company": string, "location": string, "description": string }. The description should contain the full requirements, responsibilities, and qualifications. If you cannot access the page return { "error": string }.' },
+        { role: "user", content: `Extract the job description from: ${url.trim()}` },
+      ], 4, true, 2000);
+
+      const data = JSON.parse(extractJSON(raw));
+      if (data.error) return res.status(422).json({ error: "Couldn't extract the job description from this URL — try pasting the text instead" });
+      if (!data.description) return res.status(422).json({ error: "Couldn't extract the job description from this URL — try pasting the text instead" });
+
+      await logToken(email, "jd_fetch");
+      return res.json({ title: data.title || "", company: data.company || "", location: data.location || "", description: data.description });
+    } catch (err: any) {
+      console.error("JD fetch-url error:", err);
+      return res.status(422).json({ error: "Couldn't extract the job description from this URL — try pasting the text instead" });
+    }
+  });
+
+  // ── JD screenshot extract (Claude vision, multi-image) ────────────────────────
+  app.post("/api/jd/extract-screenshot", generalLimiter, upload.array("images", 4), async (req, res) => {
+    try {
+      const files = req.files as Express.Multer.File[] | undefined;
+      if (!files || files.length === 0) return res.status(400).json({ error: "At least one image required" });
+
+      const oversized = files.filter((f) => f.size > 5 * 1024 * 1024);
+      if (oversized.length > 0) return res.status(400).json({ error: "Images must be under 5 MB each" });
+
+      const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+      const key = process.env.ANTHROPIC_API_KEY;
+      if (!key) throw new Error("ANTHROPIC_API_KEY not set");
+
+      const imageBlocks = files.map((f) => ({
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: f.mimetype as "image/png" | "image/jpeg" | "image/webp",
+          data: f.buffer.toString("base64"),
+        },
+      }));
+
+      const userContent = [
+        ...imageBlocks,
+        { type: "text" as const, text: "Extract the job description from these screenshots." },
+      ];
+
+      const apiRes = await fetch(ANTHROPIC_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": key,
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 2000,
+          system: 'Extract the complete job description from these screenshot(s) of a job listing. They may be sequential screenshots of the same listing — combine all text. Return JSON only: { "title": string, "company": string, "location": string, "description": string }. If text is unreadable return { "error": string }.',
+          messages: [{ role: "user", content: userContent }],
+        }),
+      });
+
+      if (!apiRes.ok) {
+        const errText = await apiRes.text();
+        throw new Error(`Claude API error ${apiRes.status}: ${errText}`);
+      }
+
+      const apiData = (await apiRes.json()) as any;
+      const rawText = (apiData.content as any[]).filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("");
+
+      const data = JSON.parse(extractJSON(rawText));
+      if (data.error) return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
+      if (!data.description) return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
+
+      const { email } = req.body;
+      await logToken(email, "jd_extract");
+      return res.json({ title: data.title || "", company: data.company || "", location: data.location || "", description: data.description });
+    } catch (err: any) {
+      console.error("JD extract-screenshot error:", err);
+      return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
     }
   });
 
