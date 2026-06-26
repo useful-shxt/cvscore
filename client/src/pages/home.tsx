@@ -2601,6 +2601,15 @@ export default function Home() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 pb-24 space-y-4">
+        {user.runCount > 0 && (
+          <button
+            onClick={() => setShowDashboard(true)}
+            className="flex items-center gap-1.5 text-sm text-[#8895B3] hover:text-white transition-colors"
+          >
+            ← Back to Dashboard
+          </button>
+        )}
+
         {/* CV input */}
         <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
           <div className="flex items-center justify-between">
