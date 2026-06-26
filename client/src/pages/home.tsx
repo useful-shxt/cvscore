@@ -8,9 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmailGate } from "@/components/EmailGate";
 import { LaunchBanner } from "@/components/LaunchBanner";
-import { OnboardingWizard } from "@sc/components/auth/OnboardingWizard";
-import type { WizardStep } from "@sc/components/auth/OnboardingWizard";
-import { DrillDownPanel } from "@sc/components/overlays/DrillDownPanel";
+import { OnboardingWizard } from "@/components/OnboardingWizard";
+import type { WizardStep } from "@/components/OnboardingWizard";
+import { DrillDownPanel } from "@/components/DrillDownPanel";
 import type {
   FastScoreResult,
   DeepAnalysisResult,
