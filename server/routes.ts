@@ -51,7 +51,6 @@ async function callPerplexity(
 ): Promise<string> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const body: any = { model, messages, max_tokens: maxTokens };
-    if (useSearch) body.search_mode = "auto";
 
     const res = await fetch(PPLX_API, {
       method: "POST",
