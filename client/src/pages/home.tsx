@@ -30,6 +30,31 @@ interface AppUser {
   runCount: number;
 }
 
+interface LinkedInExportSection {
+  key: string;
+  title: string;
+  score: number;
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+}
+
+interface LinkedInExportResult {
+  overallScore: number;
+  fullName?: string;
+  tagline?: string;
+  sections: LinkedInExportSection[];
+  topActions: string[];
+  exportMeta?: {
+    connectionsCount: number;
+    positionsCount: number;
+    skillsCount: number;
+    endorsementsCount: number;
+    recommendationsCount: number;
+    certificationsCount: number;
+  };
+}
+
 // ─── Logo ──────────────────────────────────────────────────────────────────────
 function CVScoreLogo({ size = 32 }: { size?: number }) {
   return (
@@ -676,6 +701,130 @@ function LinkedInPanel({ analysis }: { analysis: LinkedInAnalysisResult }) {
   );
 }
 
+// ─── LinkedIn Export Analysis Panel ───────────────────────────────────────────
+function LinkedInExportPanel({ result, onReset }: { result: LinkedInExportResult; onReset: () => void }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const scoreColor = (s: number) => s >= 70 ? "#10B981" : s >= 40 ? "#F59E0B" : "#EF4444";
+
+  return (
+    <div className="space-y-4">
+      {/* Score hero */}
+      <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5 flex flex-col sm:flex-row items-center gap-6">
+        <ScoreDial score={result.overallScore} size={130} />
+        <div className="flex-1 space-y-3 w-full">
+          {result.fullName && (
+            <p className="text-lg font-bold text-white">{result.fullName}</p>
+          )}
+          {result.tagline && (
+            <p className="text-sm text-[#8895B3] leading-relaxed">{result.tagline}</p>
+          )}
+          {result.exportMeta && (
+            <div className="flex flex-wrap gap-2 mt-1">
+              {[
+                { label: "Connections", val: result.exportMeta.connectionsCount },
+                { label: "Roles", val: result.exportMeta.positionsCount },
+                { label: "Skills", val: result.exportMeta.skillsCount },
+                { label: "Endorsements", val: result.exportMeta.endorsementsCount },
+                { label: "Recommendations", val: result.exportMeta.recommendationsCount },
+              ].filter(m => m.val > 0).map(m => (
+                <span key={m.label} className="text-xs bg-[#1A2340] border border-[#2A3558] rounded-full px-2.5 py-1 text-[#8895B3]">
+                  {m.val} {m.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Top Actions */}
+      {result.topActions?.length > 0 && (
+        <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-5 space-y-3">
+          <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider">Priority Actions</p>
+          <ol className="space-y-2">
+            {result.topActions.map((action, i) => (
+              <li key={i} className="flex items-start gap-3 text-sm text-white">
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center mt-0.5">{i + 1}</span>
+                <span className="leading-relaxed">{action}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* 8 Section Cards (2-col grid) */}
+      {result.sections?.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {result.sections.map((section) => {
+            const isOpen = expanded === section.key;
+            const c = scoreColor(section.score);
+            return (
+              <div
+                key={section.key}
+                className="rounded-xl border border-[#2A3558] bg-[#0F1629] overflow-hidden"
+              >
+                <button
+                  className="w-full p-4 flex items-center justify-between gap-3 text-left hover:bg-[#1A2340]/50 transition-colors"
+                  onClick={() => setExpanded(isOpen ? null : section.key)}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${c}18`, border: `1px solid ${c}40` }}>
+                      <span className="text-xs font-bold" style={{ color: c }}>{section.score}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">{section.title}</p>
+                      <div className="h-1 rounded-full bg-[#1A2340] mt-1.5 w-full" style={{ maxWidth: "100px" }}>
+                        <div className="h-full rounded-full" style={{ width: `${section.score}%`, backgroundColor: c }} />
+                      </div>
+                    </div>
+                  </div>
+                  <svg
+                    className="flex-shrink-0 transition-transform text-[#8895B3]"
+                    style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                    width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  >
+                    <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {isOpen && (
+                  <div className="px-4 pb-4 space-y-3 border-t border-[#2A3558]">
+                    <p className="text-sm text-[#C8D4EE] leading-relaxed pt-3">{section.summary}</p>
+                    {section.strengths?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-green-400 uppercase tracking-wider">Strengths</p>
+                        {section.strengths.map((s, i) => (
+                          <div key={i} className="flex items-start gap-2 text-xs text-[#C8D4EE]">
+                            <span className="text-green-400 mt-0.5 flex-shrink-0">+</span>
+                            <span>{s}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {section.improvements?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Improvements</p>
+                        {section.improvements.map((s, i) => (
+                          <div key={i} className="flex items-start gap-2 text-xs text-[#C8D4EE]">
+                            <span className="text-amber-400 mt-0.5 flex-shrink-0">→</span>
+                            <span>{s}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <button onClick={onReset} className="text-xs text-[#8895B3] hover:text-white transition-colors">
+        ← Analyse a different export
+      </button>
+    </div>
+  );
+}
+
 // ─── JD Tracker Panel ─────────────────────────────────────────────────────────
 function TrackerInsights({ entries }: { entries: TrackerEntry[] }) {
   if (entries.length < 2) return null;
@@ -1310,6 +1459,10 @@ export default function Home() {
   const [diffResult, setDiffResult] = useState<{ original: { overall: number }; optimised: { overall: number }; delta: number; biggestGain: string; summary: string } | null>(null);
   const [coverLetters, setCoverLetters] = useState<CoverLetter[] | null>(null);
   const [linkedinAnalysis, setLinkedinAnalysis] = useState<LinkedInAnalysisResult | null>(null);
+  const [linkedinMode, setLinkedinMode] = useState<"paste" | "export">("paste");
+  const [linkedinExportFile, setLinkedinExportFile] = useState<File | null>(null);
+  const [linkedinExportResult, setLinkedinExportResult] = useState<LinkedInExportResult | null>(null);
+  const [linkedinExportLoading, setLinkedinExportLoading] = useState(false);
   const [companyIntel, setCompanyIntel] = useState<CompanyIntelResult | null>(null);
   const [companyIntelLoading, setCompanyIntelLoading] = useState(false);
   const [outputTab, setOutputTab] = useState<"score" | "rewrite" | "cover" | "linkedin" | "tracker" | "qa">("score");
@@ -1546,6 +1699,28 @@ export default function Home() {
       toast({ title: "LinkedIn analysis failed", description: err.message, variant: "destructive" });
     },
   });
+
+  const handleLinkedinExportUpload = async () => {
+    if (!linkedinExportFile) return;
+    setLinkedinExportLoading(true);
+    try {
+      const form = new FormData();
+      form.append("file", linkedinExportFile);
+      if (user?.email) form.append("email", user.email);
+      const res = await fetch(`${API_BASE}/api/linkedin/analyse-export`, { method: "POST", body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Error ${res.status}`);
+      }
+      const data = await res.json() as LinkedInExportResult;
+      setLinkedinExportResult(data);
+      setOutputTab("linkedin");
+    } catch (err: any) {
+      toast({ title: "Export analysis failed", description: err.message, variant: "destructive" });
+    } finally {
+      setLinkedinExportLoading(false);
+    }
+  };
 
   const canScore = cvText.trim().length > 50 && jdText.trim().length > 50;
 
@@ -1913,6 +2088,8 @@ export default function Home() {
                     ← Analyse a different profile
                   </Button>
                 </div>
+              ) : linkedinExportResult ? (
+                <LinkedInExportPanel result={linkedinExportResult} onReset={() => { setLinkedinExportResult(null); setLinkedinExportFile(null); }} />
               ) : (
                 <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] overflow-hidden">
                   {/* Header */}
@@ -1925,10 +2102,12 @@ export default function Home() {
                       </svg>
                     </div>
                     <div className="flex-1">
-                      <p className="font-display font-semibold text-white">LinkedIn Profile Analyser</p>
+                      <p className="font-display font-semibold text-white">LinkedIn Analyser</p>
                       <p className="text-sm text-[#8895B3] mt-0.5">
-                        Scores your LinkedIn against this job description — headline, about, skills, experience.
-                        {cvText ? <span className="text-blue-400"> CV gap analysis included.</span> : null}
+                        {linkedinMode === "paste"
+                          ? <>Scores your LinkedIn against this job description — headline, about, skills, experience.{cvText ? <span className="text-blue-400"> CV gap analysis included.</span> : null}</>
+                          : "Deep analysis of your full LinkedIn export — career positioning, network, skills, recommendations and more."
+                        }
                       </p>
                     </div>
                     <div className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 bg-green-500/10 border border-green-500/20 flex-shrink-0">
@@ -1937,76 +2116,173 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Step-by-step instructions */}
-                  <div className="p-5 border-b border-[#2A3558] bg-[#080D1A]/40 space-y-3">
-                    <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">How to get the best results</p>
-                    <div className="space-y-3">
-                      {[
-                        { step: "1", color: "bg-blue-500", title: "Open your LinkedIn profile", detail: "Go to linkedin.com and navigate to your own profile page." },
-                        { step: "2", color: "bg-blue-500", title: "Select all and copy", detail: 'Press Ctrl+A (Cmd+A on Mac) to select everything on the page, then Ctrl+C to copy. This captures your headline, about, experience, education, and skills in one go.' },
-                        { step: "3", color: "bg-blue-500", title: "Paste below", detail: "Paste into the box below. Don't worry about formatting — the AI strips out navigation noise and focuses on your content." },
-                        { step: "✓", color: "bg-green-500", title: "More = better", detail: "Include your full About section, all experience entries with descriptions, skills list, and any certifications for the most accurate score." },
-                      ].map(({ step, color, title, detail }) => (
-                        <div key={step} className="flex gap-3">
-                          <div className={`w-5 h-5 rounded-full ${color} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                            <span className="text-white text-xs font-bold leading-none">{step}</span>
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-white">{title}</p>
-                            <p className="text-xs text-[#8895B3] mt-0.5 leading-relaxed">{detail}</p>
-                          </div>
-                        </div>
-                      ))}
+                  {/* Mode switcher */}
+                  <div className="p-4 border-b border-[#2A3558] bg-[#080D1A]/40">
+                    <div className="inline-flex rounded-xl border border-[#2A3558] bg-[#1A2340] p-1 gap-1">
+                      <button
+                        onClick={() => setLinkedinMode("paste")}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${linkedinMode === "paste" ? "bg-blue-500 text-white" : "text-[#8895B3] hover:text-white"}`}
+                      >
+                        Paste Profile
+                      </button>
+                      <button
+                        onClick={() => setLinkedinMode("export")}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${linkedinMode === "export" ? "bg-blue-500 text-white" : "text-[#8895B3] hover:text-white"}`}
+                      >
+                        Upload Export
+                      </button>
                     </div>
                   </div>
 
-                  {/* Paste area */}
-                  <div className="p-5 space-y-3">
-                    {/* CV-based shortcut — shown when CV is available but no LinkedIn text yet */}
-                    {cvText.trim().length > 50 && linkedinText.trim().length < 50 && (
-                      <div className="bg-blue-500/8 border border-blue-500/25 rounded-xl p-4 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-white">No LinkedIn profile? Use your CV</p>
-                          <p className="text-xs text-[#8895B3] mt-0.5">Claude will generate optimised LinkedIn content directly from your CV.</p>
+                  {linkedinMode === "paste" ? (
+                    <>
+                      {/* Step-by-step instructions */}
+                      <div className="p-5 border-b border-[#2A3558] bg-[#080D1A]/40 space-y-3">
+                        <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">How to get the best results</p>
+                        <div className="space-y-3">
+                          {[
+                            { step: "1", color: "bg-blue-500", title: "Open your LinkedIn profile", detail: "Go to linkedin.com and navigate to your own profile page." },
+                            { step: "2", color: "bg-blue-500", title: "Select all and copy", detail: 'Press Ctrl+A (Cmd+A on Mac) to select everything on the page, then Ctrl+C to copy. This captures your headline, about, experience, education, and skills in one go.' },
+                            { step: "3", color: "bg-blue-500", title: "Paste below", detail: "Paste into the box below. Don't worry about formatting — the AI strips out navigation noise and focuses on your content." },
+                            { step: "✓", color: "bg-green-500", title: "More = better", detail: "Include your full About section, all experience entries with descriptions, skills list, and any certifications for the most accurate score." },
+                          ].map(({ step, color, title, detail }) => (
+                            <div key={step} className="flex gap-3">
+                              <div className={`w-5 h-5 rounded-full ${color} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                                <span className="text-white text-xs font-bold leading-none">{step}</span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-white">{title}</p>
+                                <p className="text-xs text-[#8895B3] mt-0.5 leading-relaxed">{detail}</p>
+                              </div>
+                            </div>
+                          ))}
                         </div>
+                      </div>
+
+                      {/* Paste area */}
+                      <div className="p-5 space-y-3">
+                        {cvText.trim().length > 50 && linkedinText.trim().length < 50 && (
+                          <div className="bg-blue-500/8 border border-blue-500/25 rounded-xl p-4 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-white">No LinkedIn profile? Use your CV</p>
+                              <p className="text-xs text-[#8895B3] mt-0.5">Claude will generate optimised LinkedIn content directly from your CV.</p>
+                            </div>
+                            <Button
+                              onClick={() => linkedinMutation.mutate()}
+                              disabled={linkedinMutation.isPending}
+                              className="flex-shrink-0 bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold px-4 py-2 h-auto"
+                            >
+                              {linkedinMutation.isPending
+                                ? <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing...</span>
+                                : "Analyse using my CV →"}
+                            </Button>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold text-white">Or paste your LinkedIn profile here</p>
+                          {linkedinText.trim().length > 50 && (
+                            <span className="text-xs text-green-400">{linkedinText.split(/\s+/).length} words — looking good</span>
+                          )}
+                        </div>
+                        <Textarea
+                          value={linkedinText}
+                          onChange={(e) => setLinkedinText(e.target.value)}
+                          placeholder="Paste everything from your LinkedIn profile — headline, about, experience, education, skills, certifications..."
+                          data-testid="textarea-linkedin"
+                          className="min-h-[180px] bg-[#1A2340] border-[#2A3558] text-white placeholder:text-white/40 text-sm resize-none focus:border-blue-500"
+                        />
+                        {linkedinText.trim().length > 0 && linkedinText.trim().length < 50 && (
+                          <p className="text-xs text-amber-400">Keep going — paste your full profile for an accurate score</p>
+                        )}
                         <Button
                           onClick={() => linkedinMutation.mutate()}
-                          disabled={linkedinMutation.isPending}
-                          className="flex-shrink-0 bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold px-4 py-2 h-auto"
+                          disabled={linkedinMutation.isPending || (linkedinText.trim().length < 50 && cvText.trim().length <= 50)}
+                          data-testid="button-analyse-linkedin"
+                          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
                         >
                           {linkedinMutation.isPending
-                            ? <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing...</span>
-                            : "Analyse using my CV →"}
+                            ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing your LinkedIn...</span>
+                            : "Analyse My LinkedIn Profile"}
                         </Button>
                       </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold text-white">Or paste your LinkedIn profile here</p>
-                      {linkedinText.trim().length > 50 && (
-                        <span className="text-xs text-green-400">{linkedinText.split(/\s+/).length} words — looking good</span>
-                      )}
+                    </>
+                  ) : (
+                    /* Export upload mode */
+                    <div className="p-5 space-y-5">
+                      {/* How to export */}
+                      <div className="space-y-3">
+                        <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">How to download your LinkedIn export</p>
+                        <div className="space-y-2">
+                          {[
+                            { step: "1", title: "Go to LinkedIn Settings", detail: 'Click your profile photo → Settings & Privacy → Data privacy.' },
+                            { step: "2", title: "Request your data", detail: 'Click "Get a copy of your data" → select "Download larger data archive" → Request archive.' },
+                            { step: "3", title: "Wait for the email", detail: "LinkedIn emails you a download link (usually within 10 minutes)." },
+                            { step: "4", title: "Upload the ZIP here", detail: "Download the ZIP and upload it below — no need to unzip." },
+                          ].map(({ step, title, detail }) => (
+                            <div key={step} className="flex gap-3">
+                              <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span className="text-white text-xs font-bold leading-none">{step}</span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-white">{title}</p>
+                                <p className="text-xs text-[#8895B3] mt-0.5 leading-relaxed">{detail}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* File drop zone */}
+                      <label
+                        htmlFor="linkedin-zip-input"
+                        className={`block rounded-xl border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${linkedinExportFile ? "border-blue-500/60 bg-blue-500/5" : "border-[#2A3558] hover:border-blue-500/40 bg-[#1A2340]/40"}`}
+                      >
+                        {linkedinExportFile ? (
+                          <div className="space-y-1">
+                            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto">
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-blue-400">
+                                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </div>
+                            <p className="text-sm font-semibold text-white">{linkedinExportFile.name}</p>
+                            <p className="text-xs text-[#8895B3]">{(linkedinExportFile.size / 1024 / 1024).toFixed(1)} MB — click to change</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="w-10 h-10 rounded-xl bg-[#2A3558] flex items-center justify-center mx-auto">
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-[#8895B3]">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </div>
+                            <p className="text-sm font-semibold text-white">Drop your LinkedIn export ZIP here</p>
+                            <p className="text-xs text-[#8895B3]">or click to browse — .zip files only, max 10 MB</p>
+                          </div>
+                        )}
+                        <input
+                          id="linkedin-zip-input"
+                          type="file"
+                          accept=".zip,application/zip,application/x-zip-compressed"
+                          className="sr-only"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) setLinkedinExportFile(f);
+                          }}
+                        />
+                      </label>
+
+                      <Button
+                        onClick={handleLinkedinExportUpload}
+                        disabled={!linkedinExportFile || linkedinExportLoading}
+                        className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
+                      >
+                        {linkedinExportLoading
+                          ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing export...</span>
+                          : "Analyse My LinkedIn Export"}
+                      </Button>
+
+                      <p className="text-xs text-center text-[#8895B3]">Your export is processed server-side and not stored — only the AI analysis is returned.</p>
                     </div>
-                    <Textarea
-                      value={linkedinText}
-                      onChange={(e) => setLinkedinText(e.target.value)}
-                      placeholder="Paste everything from your LinkedIn profile — headline, about, experience, education, skills, certifications..."
-                      data-testid="textarea-linkedin"
-                      className="min-h-[180px] bg-[#1A2340] border-[#2A3558] text-white placeholder:text-white/40 text-sm resize-none focus:border-blue-500"
-                    />
-                    {linkedinText.trim().length > 0 && linkedinText.trim().length < 50 && (
-                      <p className="text-xs text-amber-400">Keep going — paste your full profile for an accurate score</p>
-                    )}
-                    <Button
-                      onClick={() => linkedinMutation.mutate()}
-                      disabled={linkedinMutation.isPending || (linkedinText.trim().length < 50 && cvText.trim().length <= 50)}
-                      data-testid="button-analyse-linkedin"
-                      className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
-                    >
-                      {linkedinMutation.isPending
-                        ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing your LinkedIn...</span>
-                        : "Analyse My LinkedIn Profile"}
-                    </Button>
-                  </div>
+                  )}
                 </div>
               )}
             </TabsContent>

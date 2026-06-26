@@ -10,6 +10,7 @@ import rateLimit from "express-rate-limit";
 import { callClaude, callClaudeHaiku, callClaudeSonnet, fetchPageText } from "./claude";
 import supabase from "./supabase";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
+import { parseLinkedInExport } from "./linkedinParser";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -335,6 +336,157 @@ Return ONLY valid JSON:
       res.json(parsed);
     } catch (err: any) {
       console.error("LinkedIn analyse error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── LinkedIn Export ZIP Analyser ─────────────────────────────────────────────
+  app.post("/api/linkedin/analyse-export", aiLimiter, upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+      const fileName = (req.file.originalname || "").toLowerCase();
+      const mime = (req.file.mimetype || "").toLowerCase();
+      const isZip = mime === "application/zip" || mime === "application/x-zip-compressed"
+        || mime === "application/octet-stream" || fileName.endsWith(".zip");
+      if (!isZip) return res.status(400).json({ error: "File must be a ZIP archive (.zip)" });
+
+      const email = typeof req.body.email === "string" ? req.body.email.trim() : undefined;
+
+      let exportData: Awaited<ReturnType<typeof parseLinkedInExport>>;
+      try {
+        exportData = await parseLinkedInExport(req.file.buffer);
+      } catch (parseErr: any) {
+        return res.status(422).json({ error: "Could not read ZIP — make sure it is an unmodified LinkedIn data export." });
+      }
+
+      const hasData =
+        exportData.profile.firstName ||
+        exportData.positions.length > 0 ||
+        exportData.network.totalCount > 0 ||
+        exportData.skills.length > 0;
+
+      if (!hasData) {
+        return res.status(422).json({ error: "No parseable LinkedIn data found in this ZIP. Download a fresh export from LinkedIn Settings → Data Privacy → Get a copy of your data." });
+      }
+
+      const dataSnapshot = JSON.stringify({
+        profile: exportData.profile,
+        positions: exportData.positions.slice(0, 10),
+        education: exportData.education.slice(0, 5),
+        skills: exportData.skills.slice(0, 30),
+        certifications: exportData.certifications.slice(0, 10),
+        endorsements: exportData.endorsements.slice(0, 15),
+        recommendations: exportData.recommendations.slice(0, 5),
+        languages: exportData.languages,
+        courses: exportData.courses.slice(0, 10),
+        honors: exportData.honors.slice(0, 5),
+        savedJobs: exportData.savedJobs.slice(0, 10),
+        network: exportData.network,
+      });
+
+      const system = "You are a senior LinkedIn career strategist and recruiter. Analyse LinkedIn export data and return a structured JSON assessment. Return valid JSON only — no prose, no markdown fences.";
+
+      const prompt = `Analyse this LinkedIn profile export data and return an 8-section JSON assessment:
+
+LINKEDIN EXPORT DATA:
+${dataSnapshot.slice(0, 12000)}
+
+Return ONLY this JSON structure:
+{
+  "overallScore": <0-100 integer>,
+  "fullName": "<first + last name from profile, or 'LinkedIn User' if missing>",
+  "tagline": "<one sentence positioning statement for this person>",
+  "sections": [
+    {
+      "key": "careerPositioning",
+      "title": "Career Positioning",
+      "score": <0-100>,
+      "summary": "<2-3 sentence assessment>",
+      "strengths": ["<strength 1>", "<strength 2>"],
+      "improvements": ["<specific improvement>", "<specific improvement>"]
+    },
+    {
+      "key": "networkStrength",
+      "title": "Network Strength",
+      "score": <0-100>,
+      "summary": "<assessment of network size and quality — mention connection count, top industries/roles>",
+      "strengths": ["<strength>"],
+      "improvements": ["<improvement>"]
+    },
+    {
+      "key": "profileCompleteness",
+      "title": "Profile Completeness",
+      "score": <0-100>,
+      "summary": "<which sections are strong, which are missing>",
+      "strengths": ["<what's well filled out>"],
+      "improvements": ["<what's missing or thin>"]
+    },
+    {
+      "key": "experienceImpact",
+      "title": "Experience Impact",
+      "score": <0-100>,
+      "summary": "<assessment of experience depth, progression, and description quality>",
+      "strengths": ["<strong career moves or achievements>"],
+      "improvements": ["<how to make experience bullets stronger>"]
+    },
+    {
+      "key": "skillsEndorsements",
+      "title": "Skills & Endorsements",
+      "score": <0-100>,
+      "summary": "<assessment of skill breadth, depth, and endorsement social proof>",
+      "strengths": ["<top endorsed skills or valuable skills>"],
+      "improvements": ["<skills gaps or missing endorsements>"]
+    },
+    {
+      "key": "educationCredentials",
+      "title": "Education & Credentials",
+      "score": <0-100>,
+      "summary": "<assessment of education, certifications, courses, and honours>",
+      "strengths": ["<strong credentials>"],
+      "improvements": ["<certifications to add or courses to highlight>"]
+    },
+    {
+      "key": "socialProof",
+      "title": "Social Proof",
+      "score": <0-100>,
+      "summary": "<assessment of recommendations, endorsements, and credibility signals>",
+      "strengths": ["<strong social proof elements>"],
+      "improvements": ["<how to get more or better recommendations>"]
+    },
+    {
+      "key": "recruitmentReadiness",
+      "title": "Recruitment Readiness",
+      "score": <0-100>,
+      "summary": "<overall assessment — how ready is this person to be found and selected by recruiters>",
+      "strengths": ["<strong hiring signals>"],
+      "improvements": ["<what would make recruiters act faster>"]
+    }
+  ],
+  "topActions": [
+    "<highest impact action — be very specific>",
+    "<second priority action>",
+    "<third priority action>",
+    "<fourth priority action>",
+    "<fifth priority action>"
+  ]
+}`;
+
+      const raw = await callClaude(prompt, system, "claude-sonnet-4-6", 4000);
+      const analysisResult = JSON.parse(extractJSON(raw));
+
+      await logToken(email, "linkedin_export");
+
+      res.json({ ...analysisResult, exportMeta: {
+        connectionsCount: exportData.network.totalCount,
+        positionsCount: exportData.positions.length,
+        skillsCount: exportData.skills.length,
+        endorsementsCount: exportData.endorsements.reduce((s, e) => s + e.count, 0),
+        recommendationsCount: exportData.recommendations.length,
+        certificationsCount: exportData.certifications.length,
+      }});
+    } catch (err: any) {
+      console.error("LinkedIn export analyse error:", err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -765,7 +917,7 @@ Return exactly:
 
   const TOKEN_COSTS: Record<string, number> = {
     cv_score: 2, cv_rewrite: 8, cover_letter: 5, interview_prep: 6,
-    linkedin: 10, salary: 5, predict: 3, fitplan: 15, jd_fetch: 1,
+    linkedin: 10, linkedin_export: 10, salary: 5, predict: 3, fitplan: 15, jd_fetch: 1,
   };
 
   async function logToken(email: string | undefined, action: string) {
