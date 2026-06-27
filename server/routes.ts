@@ -538,6 +538,8 @@ Return ONLY this JSON structure:
         domainMatch: domainMatch || undefined,
         cvText: session.cvText ? session.cvText.slice(0, 5000) : "",
         jdText: session.jdText || "",
+        rewrite: session.rewrite ? JSON.parse(session.rewrite) : null,
+        coverLetters: session.coverLetters ? JSON.parse(session.coverLetters) : null,
       });
     } catch (err: any) {
       console.error("Session fetch error:", err);

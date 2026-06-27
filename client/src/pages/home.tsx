@@ -2034,6 +2034,8 @@ export default function Home() {
         const data = await res.json();
         if (data.cvText) setCvText(data.cvText);
         if (data.jdText) setJdText(data.jdText);
+        if (data.rewrite) setRewrite({ data: data.rewrite, intel: "" });
+        if (data.coverLetters) setCoverLetters(data.coverLetters);
         fastScore = {
           overallScore: data.overallScore,
           categories: data.categories,
