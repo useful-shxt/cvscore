@@ -1056,6 +1056,93 @@ Return exactly:
     }
   });
 
+  // ── LinkedIn profile URL fetch via Perplexity ────────────────────────────────
+  app.post("/api/linkedin/fetch-url", generalLimiter, async (req, res) => {
+    try {
+      const { url, email } = req.body;
+      if (!url || typeof url !== "string") return res.status(400).json({ error: "url required" });
+      if (!/^https?:\/\//i.test(url.trim())) return res.status(400).json({ error: "Invalid URL — must start with http:// or https://" });
+
+      const raw = await callPerplexity("sonar-pro", [
+        { role: "system", content: 'Extract the full LinkedIn profile text from this URL. Return JSON only: { "profileText": string }. The profileText should include the person\'s headline, about section, all work experience entries with descriptions, education, skills, certifications, and any other visible profile content. If you cannot access the page return { "error": string }.' },
+        { role: "user", content: `Extract the LinkedIn profile text from: ${url.trim()}` },
+      ], 4, true, 3000);
+
+      const data = JSON.parse(extractJSON(raw));
+      if (data.error) return res.status(422).json({ error: "Couldn't extract the profile from this URL — try pasting the text instead" });
+      if (!data.profileText) return res.status(422).json({ error: "Couldn't extract the profile from this URL — try pasting the text instead" });
+
+      await logToken(email, "jd_fetch");
+      return res.json({ profileText: data.profileText });
+    } catch (err: any) {
+      console.error("LinkedIn fetch-url error:", err);
+      return res.status(422).json({ error: "Couldn't extract the profile from this URL — try pasting the text instead" });
+    }
+  });
+
+  // ── LinkedIn profile screenshot extract (Claude vision, multi-image) ──────────
+  app.post("/api/linkedin/extract-screenshot", generalLimiter, upload.array("images", 4), async (req, res) => {
+    try {
+      const files = req.files as Express.Multer.File[] | undefined;
+      if (!files || files.length === 0) return res.status(400).json({ error: "At least one image required" });
+
+      const oversized = files.filter((f) => f.size > 5 * 1024 * 1024);
+      if (oversized.length > 0) return res.status(400).json({ error: "Images must be under 5 MB each" });
+
+      const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+      const key = process.env.ANTHROPIC_API_KEY;
+      if (!key) throw new Error("ANTHROPIC_API_KEY not set");
+
+      const imageBlocks = files.map((f) => ({
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: f.mimetype as "image/png" | "image/jpeg" | "image/webp",
+          data: f.buffer.toString("base64"),
+        },
+      }));
+
+      const userContent = [
+        ...imageBlocks,
+        { type: "text" as const, text: "Extract the LinkedIn profile text from these screenshots." },
+      ];
+
+      const apiRes = await fetch(ANTHROPIC_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": key,
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 3000,
+          system: 'Extract the full LinkedIn profile text from these screenshot(s). They may be sequential screenshots of the same profile — combine all content. Include the headline, about section, all work experience entries with descriptions, education, skills, certifications, and any other visible profile sections. Return JSON only: { "profileText": string }. If text is unreadable return { "error": string }.',
+          messages: [{ role: "user", content: userContent }],
+        }),
+      });
+
+      if (!apiRes.ok) {
+        const errText = await apiRes.text();
+        throw new Error(`Claude API error ${apiRes.status}: ${errText}`);
+      }
+
+      const apiData = (await apiRes.json()) as any;
+      const rawText = (apiData.content as any[]).filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("");
+
+      const data = JSON.parse(extractJSON(rawText));
+      if (data.error) return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
+      if (!data.profileText) return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
+
+      const { email } = req.body;
+      await logToken(email, "jd_extract");
+      return res.json({ profileText: data.profileText });
+    } catch (err: any) {
+      console.error("LinkedIn extract-screenshot error:", err);
+      return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
+    }
+  });
+
   // ── LinkedIn PDF export ───────────────────────────────────────────────────────
   app.post("/api/linkedin/export", generalLimiter, async (req, res) => {
     try {

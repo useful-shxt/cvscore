@@ -1466,6 +1466,10 @@ export default function Home() {
   const [coverLetters, setCoverLetters] = useState<CoverLetter[] | null>(null);
   const [linkedinAnalysis, setLinkedinAnalysis] = useState<LinkedInAnalysisResult | null>(null);
   const [linkedinMode, setLinkedinMode] = useState<"paste" | "export">("paste");
+  const [linkedinInputMode, setLinkedinInputMode] = useState<"paste" | "url" | "screenshot" | "cv">("paste");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [linkedinScreenshots, setLinkedinScreenshots] = useState<File[]>([]);
+  const [linkedinFetching, setLinkedinFetching] = useState(false);
   const [linkedinExportFile, setLinkedinExportFile] = useState<File | null>(null);
   const [linkedinExportResult, setLinkedinExportResult] = useState<LinkedInExportResult | null>(null);
   const [linkedinExportLoading, setLinkedinExportLoading] = useState(false);
@@ -1675,6 +1679,72 @@ export default function Home() {
       toast({ title: "Extraction failed", description: "Try pasting the text instead", variant: "destructive" });
     } finally {
       setJdFetching(false);
+    }
+  };
+
+  const handleLinkedinInputModeChange = (v: string) => {
+    const mode = v as "paste" | "url" | "screenshot" | "cv";
+    setLinkedinInputMode(mode);
+    if (mode === "url") {
+      setLinkedinText("");
+      setLinkedinScreenshots([]);
+    } else if (mode === "screenshot") {
+      setLinkedinText("");
+      setLinkedinUrl("");
+    } else if (mode === "cv") {
+      setLinkedinText("");
+      setLinkedinUrl("");
+      setLinkedinScreenshots([]);
+    } else {
+      setLinkedinUrl("");
+      setLinkedinScreenshots([]);
+    }
+  };
+
+  const handleLinkedinFetch = async () => {
+    if (!linkedinUrl.trim()) return;
+    setLinkedinFetching(true);
+    try {
+      const res = await fetch("/api/linkedin/fetch-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: linkedinUrl.trim(), email: user?.email }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Couldn't extract profile", description: data.error || "Try pasting the text instead", variant: "destructive" });
+        return;
+      }
+      setLinkedinText(data.profileText);
+      setLinkedinInputMode("paste");
+      setLinkedinUrl("");
+    } catch {
+      toast({ title: "Extraction failed", description: "Try pasting the text instead", variant: "destructive" });
+    } finally {
+      setLinkedinFetching(false);
+    }
+  };
+
+  const handleLinkedinScreenshot = async () => {
+    if (!linkedinScreenshots.length) return;
+    setLinkedinFetching(true);
+    try {
+      const form = new FormData();
+      linkedinScreenshots.forEach((f) => form.append("images", f));
+      if (user?.email) form.append("email", user.email);
+      const res = await fetch("/api/linkedin/extract-screenshot", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Couldn't read screenshots", description: data.error || "Try pasting the text instead", variant: "destructive" });
+        return;
+      }
+      setLinkedinText(data.profileText);
+      setLinkedinInputMode("paste");
+      setLinkedinScreenshots([]);
+    } catch {
+      toast({ title: "Extraction failed", description: "Try pasting the text instead", variant: "destructive" });
+    } finally {
+      setLinkedinFetching(false);
     }
   };
 
@@ -2408,74 +2478,119 @@ export default function Home() {
 
                   {linkedinMode === "paste" ? (
                     <>
-                      {/* Step-by-step instructions */}
-                      <div className="p-5 border-b border-[#2A3558] bg-[#080D1A]/40 space-y-3">
-                        <p className="text-xs font-semibold text-[#8895B3] uppercase tracking-wider">How to get the best results</p>
-                        <div className="space-y-3">
-                          {[
-                            { step: "1", color: "bg-blue-500", title: "Open your LinkedIn profile", detail: "Go to linkedin.com and navigate to your own profile page." },
-                            { step: "2", color: "bg-blue-500", title: "Select all and copy", detail: 'Press Ctrl+A (Cmd+A on Mac) to select everything on the page, then Ctrl+C to copy. This captures your headline, about, experience, education, and skills in one go.' },
-                            { step: "3", color: "bg-blue-500", title: "Paste below", detail: "Paste into the box below. Don't worry about formatting — the AI strips out navigation noise and focuses on your content." },
-                            { step: "✓", color: "bg-green-500", title: "More = better", detail: "Include your full About section, all experience entries with descriptions, skills list, and any certifications for the most accurate score." },
-                          ].map(({ step, color, title, detail }) => (
-                            <div key={step} className="flex gap-3">
-                              <div className={`w-5 h-5 rounded-full ${color} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                                <span className="text-white text-xs font-bold leading-none">{step}</span>
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-white">{title}</p>
-                                <p className="text-xs text-[#8895B3] mt-0.5 leading-relaxed">{detail}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                      {/* Input mode switcher */}
+                      <div className="px-5 pt-4 pb-3 border-b border-[#2A3558]">
+                        <ModeSwitcher
+                          modes={[
+                            { value: "paste", label: "📝 Paste Text" },
+                            { value: "url", label: "🔗 Paste URL" },
+                            { value: "screenshot", label: "📸 Screenshot" },
+                            { value: "cv", label: "📄 Use my CV" },
+                          ]}
+                          value={linkedinInputMode}
+                          onChange={handleLinkedinInputModeChange}
+                        />
                       </div>
 
-                      {/* Paste area */}
                       <div className="p-5 space-y-3">
-                        {cvText.trim().length > 50 && linkedinText.trim().length < 50 && (
-                          <div className="bg-blue-500/8 border border-blue-500/25 rounded-xl p-4 flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-semibold text-white">No LinkedIn profile? Use your CV</p>
-                              <p className="text-xs text-[#8895B3] mt-0.5">Claude will generate optimised LinkedIn content directly from your CV.</p>
-                            </div>
+                        {/* Paste Text mode */}
+                        {linkedinInputMode === "paste" && (
+                          <>
+                            <p className="text-xs text-[#8895B3]">Open your LinkedIn profile, press Ctrl+A then Ctrl+C, and paste everything below.</p>
+                            {linkedinText.trim().length > 50 && (
+                              <span className="text-xs text-green-400">{linkedinText.split(/\s+/).length} words — looking good</span>
+                            )}
+                            <Textarea
+                              value={linkedinText}
+                              onChange={(e) => setLinkedinText(e.target.value)}
+                              placeholder="Paste everything from your LinkedIn profile — headline, about, experience, education, skills, certifications..."
+                              data-testid="textarea-linkedin"
+                              className="min-h-[180px] bg-[#1A2340] border-[#2A3558] text-white placeholder:text-white/40 text-sm resize-none focus:border-blue-500"
+                            />
+                            {linkedinText.trim().length > 0 && linkedinText.trim().length < 50 && (
+                              <p className="text-xs text-amber-400">Keep going — paste your full profile for an accurate score</p>
+                            )}
                             <Button
                               onClick={() => linkedinMutation.mutate()}
-                              disabled={linkedinMutation.isPending}
-                              className="flex-shrink-0 bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold px-4 py-2 h-auto"
+                              disabled={linkedinMutation.isPending || linkedinText.trim().length < 50}
+                              data-testid="button-analyse-linkedin"
+                              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
                             >
                               {linkedinMutation.isPending
-                                ? <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing...</span>
-                                : "Analyse using my CV →"}
+                                ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing your LinkedIn...</span>
+                                : "Analyse My LinkedIn Profile"}
                             </Button>
-                          </div>
+                          </>
                         )}
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-semibold text-white">Or paste your LinkedIn profile here</p>
-                          {linkedinText.trim().length > 50 && (
-                            <span className="text-xs text-green-400">{linkedinText.split(/\s+/).length} words — looking good</span>
-                          )}
-                        </div>
-                        <Textarea
-                          value={linkedinText}
-                          onChange={(e) => setLinkedinText(e.target.value)}
-                          placeholder="Paste everything from your LinkedIn profile — headline, about, experience, education, skills, certifications..."
-                          data-testid="textarea-linkedin"
-                          className="min-h-[180px] bg-[#1A2340] border-[#2A3558] text-white placeholder:text-white/40 text-sm resize-none focus:border-blue-500"
-                        />
-                        {linkedinText.trim().length > 0 && linkedinText.trim().length < 50 && (
-                          <p className="text-xs text-amber-400">Keep going — paste your full profile for an accurate score</p>
+
+                        {/* URL mode */}
+                        {linkedinInputMode === "url" && (
+                          <>
+                            <input
+                              type="url"
+                              value={linkedinUrl}
+                              onChange={(e) => setLinkedinUrl(e.target.value)}
+                              placeholder="Paste your LinkedIn profile URL (linkedin.com/in/yourname)"
+                              className="w-full bg-[#1A2340] border border-[#2A3558] rounded-lg text-white text-sm px-3 py-2.5 outline-none focus:border-blue-500/50 placeholder-[#3D4F6E]"
+                              onKeyDown={(e) => { if (e.key === "Enter" && linkedinUrl.trim()) handleLinkedinFetch(); }}
+                            />
+                            <p className="text-xs text-[#8895B3]">We'll extract your profile text automatically.</p>
+                            <Button
+                              onClick={handleLinkedinFetch}
+                              disabled={!linkedinUrl.trim() || linkedinFetching}
+                              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
+                            >
+                              {linkedinFetching
+                                ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Extracting...</span>
+                                : "Extract Profile →"}
+                            </Button>
+                          </>
                         )}
-                        <Button
-                          onClick={() => linkedinMutation.mutate()}
-                          disabled={linkedinMutation.isPending || (linkedinText.trim().length < 50 && cvText.trim().length <= 50)}
-                          data-testid="button-analyse-linkedin"
-                          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
-                        >
-                          {linkedinMutation.isPending
-                            ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing your LinkedIn...</span>
-                            : "Analyse My LinkedIn Profile"}
-                        </Button>
+
+                        {/* Screenshot mode */}
+                        {linkedinInputMode === "screenshot" && (
+                          <>
+                            <FileDropZone files={linkedinScreenshots} onChange={setLinkedinScreenshots} maxFiles={4} />
+                            <p className="text-xs text-[#8895B3]">Screenshot your LinkedIn profile — upload up to 4 images to capture the full profile.</p>
+                            <Button
+                              onClick={handleLinkedinScreenshot}
+                              disabled={!linkedinScreenshots.length || linkedinFetching}
+                              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
+                            >
+                              {linkedinFetching
+                                ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Reading screenshots...</span>
+                                : `Extract from ${linkedinScreenshots.length || 0} Screenshot${linkedinScreenshots.length !== 1 ? "s" : ""} →`}
+                            </Button>
+                          </>
+                        )}
+
+                        {/* Use my CV mode */}
+                        {linkedinInputMode === "cv" && (
+                          <>
+                            {cvText.trim().length > 50 ? (
+                              <>
+                                <div className="rounded-xl bg-blue-500/8 border border-blue-500/20 p-4 space-y-1">
+                                  <p className="text-sm font-semibold text-white">Using your CV as the profile source</p>
+                                  <p className="text-xs text-[#8895B3]">Claude will generate optimised LinkedIn content directly from your CV — no profile paste needed.</p>
+                                </div>
+                                <Button
+                                  onClick={() => linkedinMutation.mutate()}
+                                  disabled={linkedinMutation.isPending}
+                                  data-testid="button-analyse-linkedin"
+                                  className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
+                                >
+                                  {linkedinMutation.isPending
+                                    ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing...</span>
+                                    : "Analyse Using My CV →"}
+                                </Button>
+                              </>
+                            ) : (
+                              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+                                <p className="text-sm text-amber-400">Paste your CV on the Score tab first — then come back here to use it as your LinkedIn source.</p>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     </>
                   ) : (
