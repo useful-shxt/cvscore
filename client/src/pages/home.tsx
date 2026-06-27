@@ -1481,6 +1481,7 @@ export default function Home() {
   const [jdUrl, setJdUrl] = useState("");
   const [jdScreenshots, setJdScreenshots] = useState<File[]>([]);
   const [jdMeta, setJdMeta] = useState<{ title?: string; company?: string; location?: string } | null>(null);
+  const [jdSource, setJdSource] = useState<"url" | "screenshot" | null>(null);
   const [jdFetching, setJdFetching] = useState(false);
   const [rewriteSwapOpen, setRewriteSwapOpen] = useState(false);
   const [rewriteSwapLoading, setRewriteSwapLoading] = useState(false);
@@ -1624,6 +1625,25 @@ export default function Home() {
     setShowWizard(false);
   };
 
+  const handleJdModeChange = (v: string) => {
+    const mode = v as "paste" | "url" | "screenshot";
+    setJdMode(mode);
+    if (mode === "url") {
+      setJdText("");
+      setJdMeta(null);
+      setJdSource(null);
+      setJdScreenshots([]);
+    } else if (mode === "screenshot") {
+      setJdText("");
+      setJdMeta(null);
+      setJdSource(null);
+      setJdUrl("");
+    } else {
+      setJdUrl("");
+      setJdScreenshots([]);
+    }
+  };
+
   const handleJdFetch = async () => {
     if (!jdUrl.trim()) return;
     setJdFetching(true);
@@ -1641,6 +1661,7 @@ export default function Home() {
       setJdText(data.description);
       setJdMeta({ title: data.title, company: data.company, location: data.location });
       setJdMode("paste");
+      setJdSource("url");
       setJdUrl("");
     } catch {
       toast({ title: "Extraction failed", description: "Try pasting the text instead", variant: "destructive" });
@@ -1665,6 +1686,7 @@ export default function Home() {
       setJdText(data.description);
       setJdMeta({ title: data.title, company: data.company, location: data.location });
       setJdMode("paste");
+      setJdSource("screenshot");
       setJdScreenshots([]);
     } catch {
       toast({ title: "Extraction failed", description: "Try pasting the text instead", variant: "destructive" });
@@ -2686,7 +2708,7 @@ export default function Home() {
               { value: "screenshot", label: "📸 Screenshot" },
             ]}
             value={jdMode}
-            onChange={(v) => setJdMode(v as "paste" | "url" | "screenshot")}
+            onChange={handleJdModeChange}
           />
 
           {jdMeta && (
@@ -2699,6 +2721,20 @@ export default function Home() {
 
           {jdMode === "paste" && (
             <>
+              {jdSource && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="flex items-center gap-1.5 text-xs bg-green-500/10 border border-green-500/20 text-green-400 rounded-full px-2.5 py-1">
+                    ✓ {jdSource === "url" ? "Extracted from URL" : "Extracted from screenshot"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setJdText(""); setJdMeta(null); setJdSource(null); }}
+                    className="text-xs text-[#8895B3] hover:text-white transition-colors"
+                  >
+                    ✕ Clear and start over
+                  </button>
+                </div>
+              )}
               <Textarea
                 ref={jdTextareaRef}
                 value={jdText}
