@@ -1466,7 +1466,7 @@ export default function Home() {
   const [coverLetters, setCoverLetters] = useState<CoverLetter[] | null>(null);
   const [linkedinAnalysis, setLinkedinAnalysis] = useState<LinkedInAnalysisResult | null>(null);
   const [linkedinMode, setLinkedinMode] = useState<"paste" | "export">("paste");
-  const [linkedinInputMode, setLinkedinInputMode] = useState<"paste" | "url" | "screenshot" | "cv">("paste");
+  const [linkedinInputMode, setLinkedinInputMode] = useState<"paste" | "url" | "screenshot">("paste");
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [linkedinScreenshots, setLinkedinScreenshots] = useState<File[]>([]);
   const [linkedinFetching, setLinkedinFetching] = useState(false);
@@ -1683,7 +1683,7 @@ export default function Home() {
   };
 
   const handleLinkedinInputModeChange = (v: string) => {
-    const mode = v as "paste" | "url" | "screenshot" | "cv";
+    const mode = v as "paste" | "url" | "screenshot";
     setLinkedinInputMode(mode);
     if (mode === "url") {
       setLinkedinText("");
@@ -1691,10 +1691,6 @@ export default function Home() {
     } else if (mode === "screenshot") {
       setLinkedinText("");
       setLinkedinUrl("");
-    } else if (mode === "cv") {
-      setLinkedinText("");
-      setLinkedinUrl("");
-      setLinkedinScreenshots([]);
     } else {
       setLinkedinUrl("");
       setLinkedinScreenshots([]);
@@ -2478,14 +2474,13 @@ export default function Home() {
 
                   {linkedinMode === "paste" ? (
                     <>
-                      {/* Input mode switcher */}
+                      {/* 3-mode input switcher */}
                       <div className="px-5 pt-4 pb-3 border-b border-[#2A3558]">
                         <ModeSwitcher
                           modes={[
                             { value: "paste", label: "📝 Paste Text" },
                             { value: "url", label: "🔗 Paste URL" },
                             { value: "screenshot", label: "📸 Screenshot" },
-                            { value: "cv", label: "📄 Use my CV" },
                           ]}
                           value={linkedinInputMode}
                           onChange={handleLinkedinInputModeChange}
@@ -2569,35 +2564,26 @@ export default function Home() {
                             </Button>
                           </>
                         )}
-
-                        {/* Use my CV mode */}
-                        {linkedinInputMode === "cv" && (
-                          <>
-                            {cvText.trim().length > 50 ? (
-                              <>
-                                <div className="rounded-xl bg-blue-500/8 border border-blue-500/20 p-4 space-y-1">
-                                  <p className="text-sm font-semibold text-white">Using your CV as the profile source</p>
-                                  <p className="text-xs text-[#8895B3]">Claude will generate optimised LinkedIn content directly from your CV — no profile paste needed.</p>
-                                </div>
-                                <Button
-                                  onClick={() => linkedinMutation.mutate()}
-                                  disabled={linkedinMutation.isPending || jdText.trim().length < 50}
-                                  data-testid="button-analyse-linkedin"
-                                  className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
-                                >
-                                  {linkedinMutation.isPending
-                                    ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing...</span>
-                                    : "Analyse Using My CV →"}
-                                </Button>
-                              </>
-                            ) : (
-                              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-                                <p className="text-sm text-amber-400">Paste your CV on the Score tab first — then come back here to use it as your LinkedIn source.</p>
-                              </div>
-                            )}
-                          </>
-                        )}
                       </div>
+
+                      {/* Use my CV — separate section below the switcher */}
+                      {cvText.trim().length > 50 && (
+                        <div className="mx-5 mb-5 bg-blue-500/8 border border-blue-500/25 rounded-xl p-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">📄 No profile? Use your CV instead</p>
+                            <p className="text-xs text-[#8895B3] mt-0.5">Claude will generate optimised LinkedIn content directly from your CV.</p>
+                          </div>
+                          <Button
+                            onClick={() => linkedinMutation.mutate()}
+                            disabled={linkedinMutation.isPending || jdText.trim().length < 50}
+                            className="flex-shrink-0 bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold px-4 py-2 h-auto"
+                          >
+                            {linkedinMutation.isPending
+                              ? <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Analysing...</span>
+                              : "Analyse using my CV →"}
+                          </Button>
+                        </div>
+                      )}
                     </>
                   ) : (
                     /* Export upload mode */
