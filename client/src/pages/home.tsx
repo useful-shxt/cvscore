@@ -2032,6 +2032,8 @@ export default function Home() {
       const res = await fetch(`/api/session/${entry.sessionId}`);
       if (res.ok) {
         const data = await res.json();
+        if (data.cvText) setCvText(data.cvText);
+        if (data.jdText) setJdText(data.jdText);
         fastScore = {
           overallScore: data.overallScore,
           categories: data.categories,
