@@ -1733,7 +1733,7 @@ export default function Home() {
         <div className="text-center space-y-4 py-4">
           <div className="text-4xl">✍️</div>
           <h3 className="font-display font-bold text-white text-lg">Improve → Rewrite &amp; Cover Letter</h3>
-          <p className="text-sm text-[#8895B3] leading-relaxed">Get an AI-rewritten CV tailored to the role, plus a matching cover letter. Both exportable as Word docs you can edit.</p>
+          <p className="text-sm text-[#8895B3] leading-relaxed">Get an AI-rewritten CV tailored to the role, plus a matching cover letter. Not happy with the result? Hit regenerate and tell us what to change — more technical, shorter, different focus. Both exportable as Word docs.</p>
         </div>
       ),
     },
