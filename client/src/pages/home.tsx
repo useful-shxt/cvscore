@@ -2492,6 +2492,12 @@ export default function Home() {
                         />
                       </div>
 
+                      {jdText.trim().length < 50 && (
+                        <div className="mx-5 mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+                          <p className="text-sm text-amber-400">Score your CV against a job description first — the LinkedIn analysis uses it to personalise recommendations.</p>
+                        </div>
+                      )}
+
                       <div className="p-5 space-y-3">
                         {/* Paste Text mode */}
                         {linkedinInputMode === "paste" && (
@@ -2512,7 +2518,7 @@ export default function Home() {
                             )}
                             <Button
                               onClick={() => linkedinMutation.mutate()}
-                              disabled={linkedinMutation.isPending || linkedinText.trim().length < 50}
+                              disabled={linkedinMutation.isPending || linkedinText.trim().length < 50 || jdText.trim().length < 50}
                               data-testid="button-analyse-linkedin"
                               className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
                             >
@@ -2575,7 +2581,7 @@ export default function Home() {
                                 </div>
                                 <Button
                                   onClick={() => linkedinMutation.mutate()}
-                                  disabled={linkedinMutation.isPending}
+                                  disabled={linkedinMutation.isPending || jdText.trim().length < 50}
                                   data-testid="button-analyse-linkedin"
                                   className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-5"
                                 >
