@@ -1490,6 +1490,7 @@ export default function Home() {
   const jdCardRef = useRef<HTMLDivElement>(null);
   const jdTextareaRef = useRef<HTMLTextAreaElement>(null);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const companyIntelForScore = useRef<CompanyIntelResult | null>(null);
   const { toast } = useToast();
 
   // ── Auth rehydration on mount ────────────────────────────────────────────────
@@ -1555,27 +1556,7 @@ export default function Home() {
     rehydrate();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-fetch company intel when JD is long enough (debounced 1.5s)
-  useEffect(() => {
-    if (jdText.trim().length < 150) {
-      setCompanyIntel(null);
-      return;
-    }
-    if (intelDebounceRef.current) clearTimeout(intelDebounceRef.current);
-    intelDebounceRef.current = setTimeout(async () => {
-      setCompanyIntelLoading(true);
-      try {
-        const res = await apiRequest("POST", "/api/company-intel", { jdText });
-        const data = await res.json();
-        setCompanyIntel(data);
-      } catch {
-        // Silently fail — company intel is enhancement, not required
-      } finally {
-        setCompanyIntelLoading(false);
-      }
-    }, 1500);
-    return () => { if (intelDebounceRef.current) clearTimeout(intelDebounceRef.current); };
-  }, [jdText]);
+  // Company intel is fetched inside handleScore — not auto-triggered on jdText change
 
   // Load tracker entries when user is set
   useEffect(() => {
@@ -1633,11 +1614,13 @@ export default function Home() {
       setJdMeta(null);
       setJdSource(null);
       setJdScreenshots([]);
+      setCompanyIntel(null);
     } else if (mode === "screenshot") {
       setJdText("");
       setJdMeta(null);
       setJdSource(null);
       setJdUrl("");
+      setCompanyIntel(null);
     } else {
       setJdUrl("");
       setJdScreenshots([]);
@@ -1796,12 +1779,13 @@ export default function Home() {
 
   const fastScoreMutation = useMutation({
     mutationFn: async () => {
+      const ci = companyIntelForScore.current;
       const res = await apiRequest("POST", "/api/score/fast", {
         cvText,
         jdText,
         userId: user?.id,
-        jobTitle: companyIntel?.jobTitle || null,
-        companyName: companyIntel?.companyName || null,
+        jobTitle: ci?.jobTitle || null,
+        companyName: ci?.companyName || null,
       });
       return res.json() as Promise<FastScoreResult & { sessionId: string }>;
     },
@@ -1924,9 +1908,25 @@ export default function Home() {
 
   const canScore = cvText.trim().length > 50 && jdText.trim().length > 50;
 
-  const handleScore = () => {
+  const handleScore = async () => {
     if (!canScore) return;
     setStage("scoring");
+
+    let ci: CompanyIntelResult | null = null;
+    if (jdText.trim().length >= 50) {
+      setCompanyIntelLoading(true);
+      try {
+        const res = await apiRequest("POST", "/api/company-intel", { jdText });
+        ci = await res.json();
+        setCompanyIntel(ci);
+      } catch {
+        // non-critical enhancement — proceed to scoring regardless
+      } finally {
+        setCompanyIntelLoading(false);
+      }
+    }
+
+    companyIntelForScore.current = ci;
     fastScoreMutation.mutate();
   };
 
@@ -2728,7 +2728,7 @@ export default function Home() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => { setJdText(""); setJdMeta(null); setJdSource(null); }}
+                    onClick={() => { setJdText(""); setJdMeta(null); setJdSource(null); setCompanyIntel(null); }}
                     className="text-xs text-[#8895B3] hover:text-white transition-colors"
                   >
                     ✕ Clear and start over
