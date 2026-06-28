@@ -33,12 +33,22 @@ const generalLimiter = rateLimit({
   message: { error: "Too many requests, please try again later." },
 });
 
-const aiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+// Registration: 10 per minute per IP
+const registerLimiter = rateLimit({
+  windowMs: 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Rate limit reached on AI routes. Please wait a few minutes." },
+  message: { error: "Too many registration attempts. Please try again in a minute." },
+});
+
+// Cron endpoints: 1 per minute (admin-only, prevents double-fire)
+const cronLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Cron already running." },
 });
 
 // ─── Retry helper ─────────────────────────────────────────────────────────────
@@ -142,6 +152,51 @@ function extractCompanyName(jd: string): string | null {
   return truncated.slice(0, 40) || null;
 }
 
+// ─── Token helpers ────────────────────────────────────────────────────────────
+
+// Look up a userId from an email address (for routes that only receive email)
+async function userIdFromEmail(email: string | undefined): Promise<string | undefined> {
+  if (!email || typeof email !== "string") return undefined;
+  const { data } = await supabase
+    .from("users")
+    .select("id")
+    .eq("email", email.toLowerCase().trim())
+    .maybeSingle();
+  return data?.id;
+}
+
+// Check balance before an AI call. Returns false and sends 402 if insufficient.
+async function requireBalance(userId: string, tokenCost: number, res: any): Promise<boolean> {
+  const { data } = await supabase
+    .from("users")
+    .select("token_balance")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!data) return true; // user not in DB yet — skip check
+  const balance = (data.token_balance as number) ?? 0;
+  if (balance < tokenCost) {
+    res.status(402).json({
+      error: "Insufficient tokens",
+      type: "insufficient_tokens",
+      balance,
+      required: tokenCost,
+    });
+    return false;
+  }
+  return true;
+}
+
+// Atomically deduct tokens AFTER a successful AI response.
+async function deductTokens(userId: string, tokenCost: number, apiCost: number): Promise<void> {
+  try {
+    await supabase.rpc("deduct_user_tokens", {
+      p_user_id: userId,
+      p_tokens: tokenCost,
+      p_api_cost: apiCost,
+    });
+  } catch { /* non-critical — log silently */ }
+}
+
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ── Health ──────────────────────────────────────────────────────────────────
   app.get("/api/health", (_req, res) => {
@@ -149,7 +204,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // ── User registration ───────────────────────────────────────────────────────
-  app.post("/api/user/register", generalLimiter, async (req, res) => {
+  app.post("/api/user/register", registerLimiter, async (req, res) => {
     try {
       const { email, name } = req.body;
       if (!email || !name) return res.status(400).json({ error: "email and name required" });
@@ -163,16 +218,31 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       const normalised = email.toLowerCase().trim();
       let user = await storage.getUserByEmail(normalised);
       const isNew = !user;
+      let freeTokensAwarded = 0;
 
       if (!user) {
         user = await storage.createUser({ id: nanoid(), email: normalised, name: name.trim(), runCount: 0 });
         sendWelcomeEmail(normalised, name.trim()).catch(() => {});
+
+        // Check platform budget and award free tokens
+        const [{ data: spentRow }, { data: limitRow }] = await Promise.all([
+          supabase.from("cv_platform_config").select("value").eq("key", "free_budget_spent").maybeSingle(),
+          supabase.from("cv_platform_config").select("value").eq("key", "free_budget_limit").maybeSingle(),
+        ]);
+        const spent = parseFloat(spentRow?.value ?? "0");
+        const limit = parseFloat(limitRow?.value ?? "999999");
+        const underBudget = spent < limit;
+        freeTokensAwarded = underBudget ? 1000 : 0;
+        await supabase
+          .from("users")
+          .update({ token_balance: freeTokensAwarded, is_free_tier: underBudget })
+          .eq("id", user.id);
       } else {
         await storage.touchLastSeen(user.id);
       }
 
       const { email: _email, ...safeUser } = user as any;
-      res.json({ user: safeUser, isNew });
+      res.json({ user: safeUser, isNew, freeTokensAwarded: isNew ? freeTokensAwarded : undefined });
     } catch (err: any) {
       console.error("Register error:", err);
       res.status(500).json({ error: err.message });
@@ -191,6 +261,32 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
       res.json({
         user: { id: user.id, name: user.name, runCount: user.runCount, createdAt: user.createdAt, lastSeenAt: user.lastSeenAt },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Token balance ────────────────────────────────────────────────────────────
+  app.get("/api/user/balance/:userId", generalLimiter, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const requestingUserId = req.query.userId as string | undefined;
+      if (!requestingUserId || requestingUserId !== userId)
+        return res.status(403).json({ error: "Forbidden" });
+
+      const { data } = await supabase
+        .from("users")
+        .select("token_balance, is_free_tier, total_spent, total_tokens_used")
+        .eq("id", userId)
+        .maybeSingle();
+      if (!data) return res.status(404).json({ error: "User not found" });
+
+      res.json({
+        tokenBalance: (data.token_balance as number) ?? 0,
+        isFreeTier: (data.is_free_tier as boolean) ?? false,
+        totalSpent: (data.total_spent as number) ?? 0,
+        totalTokensUsed: (data.total_tokens_used as number) ?? 0,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -217,12 +313,15 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // ── Company Intel ───────────────────────────────────────────────────────────
-  app.post("/api/company-intel", aiLimiter, async (req, res) => {
+  app.post("/api/company-intel", async (req, res) => {
     try {
-      const { jdText } = req.body;
+      const { jdText, userId } = req.body;
       if (!jdText || typeof jdText !== "string") return res.status(400).json({ error: "jdText required" });
       if (jdText.length < 50) return res.status(400).json({ error: "jdText too short" });
       if (jdText.length > MAX_JD_LEN) return res.status(400).json({ error: "jdText too long" });
+
+      const uid = typeof userId === "string" ? userId : undefined;
+      if (uid && !await requireBalance(uid, 1, res)) return;
 
       const prompt = `Search the web and analyse this job description. Return ONLY a valid JSON object (no markdown fences).
 
@@ -245,6 +344,7 @@ Return this exact JSON:
         { role: "user", content: prompt },
       ], 3, true);
 
+      if (uid) await deductTokens(uid, 1, 0.005);
       res.json(JSON.parse(extractJSON(raw)));
     } catch (err: any) {
       console.error("Company intel error:", err);
@@ -253,9 +353,9 @@ Return this exact JSON:
   });
 
   // ── LinkedIn analyse (updated: screenshot + Use my CV + copy-ready output) ───
-  app.post("/api/linkedin/analyse", aiLimiter, async (req, res) => {
+  app.post("/api/linkedin/analyse", async (req, res) => {
     try {
-      const { linkedinText, jdText, cvText, sessionId, useCV, screenshotBase64 } = req.body;
+      const { linkedinText, jdText, cvText, sessionId, useCV, screenshotBase64, userId } = req.body;
       if (!jdText || typeof jdText !== "string")
         return res.status(400).json({ error: "jdText required" });
       if (jdText.length > MAX_JD_LEN)
@@ -271,6 +371,9 @@ Return this exact JSON:
           error: "Provide LinkedIn text, a screenshot, or score your CV first to use the CV option.",
         });
       }
+
+      const uid = typeof userId === "string" ? userId : undefined;
+      if (uid && !await requireBalance(uid, 10, res)) return;
 
       const cvSection = hasCV ? `\nCANDIDATE CV:\n${(cvText as string).slice(0, 2500)}` : "";
       const mode = hasShot ? "screenshot" : hasText && !cvMode ? "profile_text" : "cv_based";
@@ -332,6 +435,7 @@ Return ONLY valid JSON:
       if (sessionId && typeof sessionId === "string")
         await storage.updateSession(sessionId, { linkedinText: linkedinText || "cv_based", linkedinAnalysis: JSON.stringify(parsed) });
 
+      if (uid) await deductTokens(uid, 10, 0.03);
       res.json(parsed);
     } catch (err: any) {
       console.error("LinkedIn analyse error:", err);
@@ -340,7 +444,7 @@ Return ONLY valid JSON:
   });
 
   // ── LinkedIn Export ZIP Analyser ─────────────────────────────────────────────
-  app.post("/api/linkedin/analyse-export", aiLimiter, upload.single("file"), async (req, res) => {
+  app.post("/api/linkedin/analyse-export", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
@@ -351,6 +455,8 @@ Return ONLY valid JSON:
       if (!isZip) return res.status(400).json({ error: "File must be a ZIP archive (.zip)" });
 
       const email = typeof req.body.email === "string" ? req.body.email.trim() : undefined;
+      const uid = await userIdFromEmail(email);
+      if (uid && !await requireBalance(uid, 10, res)) return;
 
       let exportData: Awaited<ReturnType<typeof parseLinkedInExport>>;
       try {
@@ -474,7 +580,7 @@ Return ONLY this JSON structure:
       const raw = await callClaude(prompt, system, "claude-sonnet-4-6", 4000);
       const analysisResult = JSON.parse(extractJSON(raw));
 
-      await logToken(email, "linkedin_export");
+      if (uid) await deductTokens(uid, 10, 0.05);
 
       res.json({ ...analysisResult, exportMeta: {
         connectionsCount: exportData.network.totalCount,
@@ -548,7 +654,7 @@ Return ONLY this JSON structure:
   });
 
   // ── Phase 1: Fast score ─────────────────────────────────────────────────────
-  app.post("/api/score/fast", aiLimiter, async (req, res) => {
+  app.post("/api/score/fast", async (req, res) => {
     try {
       const { cvText, jdText, userId, jobTitle, companyName } = req.body;
       if (!cvText || !jdText) return res.status(400).json({ error: "cvText and jdText required" });
@@ -558,6 +664,9 @@ Return ONLY this JSON structure:
       if (cvText.length > MAX_CV_LEN) return res.status(400).json({ error: "CV text too long" });
       if (jdText.length < 50) return res.status(400).json({ error: "JD text too short" });
       if (jdText.length > MAX_JD_LEN) return res.status(400).json({ error: "JD text too long" });
+
+      const uid = typeof userId === "string" ? userId : undefined;
+      if (uid && !await requireBalance(uid, 3, res)) return;
 
       const prompt = `You are an expert CV/resume analyst and ATS specialist. Analyse this CV against the job description and return ONLY a valid JSON object (no markdown fences).
 
@@ -624,6 +733,8 @@ Return this exact JSON:
         actions: JSON.stringify({ topActions: parsed.topActions, summary: parsed.summary, domainMatch: parsed.domainMatch }),
       });
 
+      if (uid) await deductTokens(uid, 3, 0.025);
+
       if (userId && typeof userId === "string") {
         const user = await storage.getUserById(userId);
         await storage.incrementRunCount(userId);
@@ -640,14 +751,17 @@ Return this exact JSON:
   });
 
   // ── Phase 2: Deep analysis ──────────────────────────────────────────────────
-  app.post("/api/score/deep", aiLimiter, async (req, res) => {
+  app.post("/api/score/deep", async (req, res) => {
     try {
-      const { cvText, jdText, sessionId } = req.body;
+      const { cvText, jdText, sessionId, userId } = req.body;
       if (!cvText || !jdText) return res.status(400).json({ error: "cvText and jdText required" });
       if (typeof cvText !== "string" || typeof jdText !== "string")
         return res.status(400).json({ error: "Invalid input types" });
       if (cvText.length > MAX_CV_LEN) return res.status(400).json({ error: "CV text too long" });
       if (jdText.length > MAX_JD_LEN) return res.status(400).json({ error: "JD text too long" });
+
+      const uid = typeof userId === "string" ? userId : undefined;
+      if (uid && !await requireBalance(uid, 5, res)) return;
 
       const prompt = `You are a senior career coach. Deep analysis. Return ONLY valid JSON.
 
@@ -699,6 +813,7 @@ Return:
         await storage.updateSession(sessionId, { deepAnalysis: JSON.stringify(parsed) });
       }
 
+      if (uid) await deductTokens(uid, 5, 0.04);
       res.json(parsed);
     } catch (err: any) {
       console.error("Deep score error:", err);
@@ -707,7 +822,7 @@ Return:
   });
 
   // ── CV Rewrite ──────────────────────────────────────────────────────────────
-  app.post("/api/rewrite", aiLimiter, async (req, res) => {
+  app.post("/api/rewrite", async (req, res) => {
     try {
       const { cvText, jdText, sessionId, userId, companyIntel, reason } = req.body;
       if (!cvText || !jdText) return res.status(400).json({ error: "cvText and jdText required" });
@@ -715,6 +830,9 @@ Return:
         return res.status(400).json({ error: "Invalid input types" });
       if (cvText.length > MAX_CV_LEN) return res.status(400).json({ error: "CV text too long" });
       if (jdText.length > MAX_JD_LEN) return res.status(400).json({ error: "JD text too long" });
+
+      const uid = typeof userId === "string" ? userId : undefined;
+      if (uid && !await requireBalance(uid, 5, res)) return;
 
       const intelContext = companyIntel ? `\nCOMPANY CONTEXT:\n${companyIntel}` : "";
       const reasonContext = reason && typeof reason === "string" ? `\n\nAdditional instruction: ${String(reason).slice(0, 500)}` : "";
@@ -755,6 +873,8 @@ Return this exact JSON:
         });
       }
 
+      if (uid) await deductTokens(uid, 5, 0.04);
+
       if (userId && typeof userId === "string") {
         const user = await storage.getUserById(userId);
         if (user) sendRewriteReadyEmail(user.email, user.name).catch(() => {});
@@ -768,14 +888,17 @@ Return this exact JSON:
   });
 
   // ── Cover Letters ───────────────────────────────────────────────────────────
-  app.post("/api/cover-letters", aiLimiter, async (req, res) => {
+  app.post("/api/cover-letters", async (req, res) => {
     try {
-      const { cvText, jdText, sessionId, reason } = req.body;
+      const { cvText, jdText, sessionId, reason, userId } = req.body;
       if (!cvText || !jdText) return res.status(400).json({ error: "cvText and jdText required" });
       if (typeof cvText !== "string" || typeof jdText !== "string")
         return res.status(400).json({ error: "Invalid input types" });
       if (cvText.length > MAX_CV_LEN) return res.status(400).json({ error: "CV text too long" });
       if (jdText.length > MAX_JD_LEN) return res.status(400).json({ error: "JD text too long" });
+
+      const uid = typeof userId === "string" ? userId : undefined;
+      if (uid && !await requireBalance(uid, 3, res)) return;
 
       const coverReasonContext = reason && typeof reason === "string" ? `\n\nAdditional instruction: ${String(reason).slice(0, 500)}\n` : "";
 
@@ -834,6 +957,7 @@ Return exactly:
         throw new Error("Invalid cover letter response");
       if (sessionId && typeof sessionId === "string")
         await storage.updateSession(sessionId, { coverLetters: JSON.stringify(parsed.coverLetters) });
+      if (uid) await deductTokens(uid, 3, 0.025);
       res.json(parsed);
     } catch (err: any) {
       console.error("Cover letters error:", err);
@@ -842,7 +966,7 @@ Return exactly:
   });
 
   // ── Cron: weekly personalised nudge ────────────────────────────────────────
-  app.post("/api/cron/weekly-nudge", async (req, res) => {
+  app.post("/api/cron/weekly-nudge", cronLimiter, async (req, res) => {
     const secret = req.headers["x-admin-secret"];
     if (!secret || secret !== process.env.ADMIN_SECRET)
       return res.status(401).json({ error: "Unauthorised" });
@@ -912,13 +1036,6 @@ Return exactly:
     }
   });
 
-  // ── Free period check ────────────────────────────────────────────────────────
-  function isFreePeriod(): boolean {
-    const until = process.env.FREE_UNTIL;
-    if (!until) return true;
-    return new Date() < new Date(until);
-  }
-
   const TOKEN_COSTS: Record<string, number> = {
     cv_score: 2, cv_rewrite: 8, cover_letter: 5, interview_prep: 6,
     linkedin: 10, linkedin_export: 10, salary: 5, predict: 3, fitplan: 15, jd_fetch: 1, jd_extract: 1,
@@ -930,13 +1047,12 @@ Return exactly:
       await supabase.from("token_usage").insert({
         id: nanoid(), email, action,
         token_cost: TOKEN_COSTS[action] || 1,
-        is_free: isFreePeriod(),
         created_at: new Date().toISOString(),
       });
     } catch { /* non-critical */ }
   }
 
-  // ── Token summary (soft counter) ─────────────────────────────────────────────
+  // ── Token summary (legacy soft counter) ──────────────────────────────────────
   app.get("/api/tokens/summary", generalLimiter, async (req, res) => {
     try {
       const email = req.query.email as string | undefined;
@@ -948,11 +1064,7 @@ Return exactly:
           .eq("email", email);
         tokensUsed = (data || []).reduce((s: number, r: any) => s + r.token_cost, 0);
       }
-      res.json({
-        tokensUsed,
-        isFree: isFreePeriod(),
-        freeUntil: process.env.FREE_UNTIL || null,
-      });
+      res.json({ tokensUsed });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -972,11 +1084,14 @@ Return exactly:
   });
 
   // ── JD URL fetch via Perplexity (structured extraction) ───────────────────────
-  app.post("/api/jd/fetch-url", generalLimiter, async (req, res) => {
+  app.post("/api/jd/fetch-url", async (req, res) => {
     try {
       const { url, email } = req.body;
       if (!url || typeof url !== "string") return res.status(400).json({ error: "url required" });
       if (!/^https?:\/\//i.test(url.trim())) return res.status(400).json({ error: "Invalid URL — must start with http:// or https://" });
+
+      const uid = await userIdFromEmail(email);
+      if (uid && !await requireBalance(uid, 1, res)) return;
 
       const raw = await callPerplexity("sonar-pro", [
         { role: "system", content: 'Extract the full job description from this URL. Return JSON only: { "title": string, "company": string, "location": string, "description": string }. The description should contain the full requirements, responsibilities, and qualifications. If you cannot access the page return { "error": string }.' },
@@ -987,6 +1102,7 @@ Return exactly:
       if (data.error) return res.status(422).json({ error: "Couldn't extract the job description from this URL — try pasting the text instead" });
       if (!data.description) return res.status(422).json({ error: "Couldn't extract the job description from this URL — try pasting the text instead" });
 
+      if (uid) await deductTokens(uid, 1, 0.008);
       await logToken(email, "jd_fetch");
       return res.json({ title: data.title || "", company: data.company || "", location: data.location || "", description: data.description });
     } catch (err: any) {
@@ -996,13 +1112,17 @@ Return exactly:
   });
 
   // ── JD screenshot extract (Claude vision, multi-image) ────────────────────────
-  app.post("/api/jd/extract-screenshot", generalLimiter, upload.array("images", 4), async (req, res) => {
+  app.post("/api/jd/extract-screenshot", upload.array("images", 4), async (req, res) => {
     try {
       const files = req.files as Express.Multer.File[] | undefined;
       if (!files || files.length === 0) return res.status(400).json({ error: "At least one image required" });
 
       const oversized = files.filter((f) => f.size > 5 * 1024 * 1024);
       if (oversized.length > 0) return res.status(400).json({ error: "Images must be under 5 MB each" });
+
+      const jdScreenEmail = typeof req.body.email === "string" ? req.body.email.trim() : undefined;
+      const jdScreenUid = await userIdFromEmail(jdScreenEmail);
+      if (jdScreenUid && !await requireBalance(jdScreenUid, 2, res)) return;
 
       const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
       const key = process.env.ANTHROPIC_API_KEY;
@@ -1049,8 +1169,8 @@ Return exactly:
       if (data.error) return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
       if (!data.description) return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
 
-      const { email } = req.body;
-      await logToken(email, "jd_extract");
+      if (jdScreenUid) await deductTokens(jdScreenUid, 2, 0.03);
+      await logToken(jdScreenEmail, "jd_extract");
       return res.json({ title: data.title || "", company: data.company || "", location: data.location || "", description: data.description });
     } catch (err: any) {
       console.error("JD extract-screenshot error:", err);
@@ -1059,11 +1179,14 @@ Return exactly:
   });
 
   // ── LinkedIn profile URL fetch via Perplexity ────────────────────────────────
-  app.post("/api/linkedin/fetch-url", generalLimiter, async (req, res) => {
+  app.post("/api/linkedin/fetch-url", async (req, res) => {
     try {
       const { url, email } = req.body;
       if (!url || typeof url !== "string") return res.status(400).json({ error: "url required" });
       if (!/^https?:\/\//i.test(url.trim())) return res.status(400).json({ error: "Invalid URL — must start with http:// or https://" });
+
+      const uid = await userIdFromEmail(email);
+      if (uid && !await requireBalance(uid, 1, res)) return;
 
       const raw = await callPerplexity("sonar-pro", [
         { role: "system", content: 'Extract the full LinkedIn profile text from this URL. Return JSON only: { "profileText": string }. The profileText should include the person\'s headline, about section, all work experience entries with descriptions, education, skills, certifications, and any other visible profile content. If you cannot access the page return { "error": string }.' },
@@ -1074,6 +1197,7 @@ Return exactly:
       if (data.error) return res.status(422).json({ error: "Couldn't extract the profile from this URL — try pasting the text instead" });
       if (!data.profileText) return res.status(422).json({ error: "Couldn't extract the profile from this URL — try pasting the text instead" });
 
+      if (uid) await deductTokens(uid, 1, 0.01);
       await logToken(email, "jd_fetch");
       return res.json({ profileText: data.profileText });
     } catch (err: any) {
@@ -1083,13 +1207,17 @@ Return exactly:
   });
 
   // ── LinkedIn profile screenshot extract (Claude vision, multi-image) ──────────
-  app.post("/api/linkedin/extract-screenshot", generalLimiter, upload.array("images", 4), async (req, res) => {
+  app.post("/api/linkedin/extract-screenshot", upload.array("images", 4), async (req, res) => {
     try {
       const files = req.files as Express.Multer.File[] | undefined;
       if (!files || files.length === 0) return res.status(400).json({ error: "At least one image required" });
 
       const oversized = files.filter((f) => f.size > 5 * 1024 * 1024);
       if (oversized.length > 0) return res.status(400).json({ error: "Images must be under 5 MB each" });
+
+      const liScreenEmail = typeof req.body.email === "string" ? req.body.email.trim() : undefined;
+      const liScreenUid = await userIdFromEmail(liScreenEmail);
+      if (liScreenUid && !await requireBalance(liScreenUid, 2, res)) return;
 
       const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
       const key = process.env.ANTHROPIC_API_KEY;
@@ -1136,8 +1264,8 @@ Return exactly:
       if (data.error) return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
       if (!data.profileText) return res.status(422).json({ error: "Couldn't read the screenshots clearly — try pasting the text instead" });
 
-      const { email } = req.body;
-      await logToken(email, "jd_extract");
+      if (liScreenUid) await deductTokens(liScreenUid, 2, 0.03);
+      await logToken(liScreenEmail, "jd_extract");
       return res.json({ profileText: data.profileText });
     } catch (err: any) {
       console.error("LinkedIn extract-screenshot error:", err);
@@ -1668,7 +1796,7 @@ Return ONLY valid JSON:
   });
 
   // ── FitPlan generate ──────────────────────────────────────────────────────────
-  app.post("/api/fitplan/generate", aiLimiter, async (req, res) => {
+  app.post("/api/fitplan/generate", async (req, res) => {
     try {
       const { goal, ageYears, heightCm, weightKg, targetWeightKg, activityLevel, trainingDaysPerWeek, equipment, dietaryRestrictions, healthNotes, email } = req.body;
       if (!goal || !ageYears || !heightCm || !weightKg || !activityLevel || !trainingDaysPerWeek || !equipment)
@@ -1763,7 +1891,7 @@ CRITICAL: All 7 days in weeklyMeals. Exactly ${trainingDaysPerWeek} training day
   });
 
   // ── FitPlan regenerate single day ─────────────────────────────────────────────
-  app.post("/api/fitplan/regenerate-day", aiLimiter, async (req, res) => {
+  app.post("/api/fitplan/regenerate-day", async (req, res) => {
     try {
       const { day, targetCalories, proteinG, dietaryRestrictions } = req.body;
       if (!day || !targetCalories) return res.status(400).json({ error: "day and targetCalories required" });
@@ -1781,7 +1909,7 @@ Return ONLY valid JSON:
   });
 
   // ── CV score differential ─────────────────────────────────────────────────────
-  app.post("/api/cv/differential", aiLimiter, async (req, res) => {
+  app.post("/api/cv/differential", async (req, res) => {
     try {
       const { originalCV, optimisedCV, jobDescription } = req.body;
       if (!originalCV || !optimisedCV || !jobDescription)
@@ -1811,9 +1939,9 @@ Return ONLY valid JSON:
   });
 
   // ── Application Q&A ─────────────────────────────────────────────────────────
-  app.post("/api/qa/generate", aiLimiter, async (req, res) => {
+  app.post("/api/qa/generate", async (req, res) => {
     try {
-      const { cvText, jdText, questions, sessionId } = req.body as {
+      const { cvText, jdText, questions, sessionId, userId } = req.body as {
         cvText: string;
         jdText: string;
         questions: Array<{
@@ -1823,6 +1951,7 @@ Return ONLY valid JSON:
           bulletPoints?: string[];
         }>;
         sessionId?: string;
+        userId?: string;
       };
 
       if (!cvText || typeof cvText !== "string" || cvText.trim().length < 50)
@@ -1837,6 +1966,9 @@ Return ONLY valid JSON:
         return res.status(400).json({ error: "CV text too long" });
       if (jdText.length > MAX_JD_LEN)
         return res.status(400).json({ error: "JD text too long" });
+
+      const qaUid = typeof userId === "string" ? userId : undefined;
+      if (qaUid && !await requireBalance(qaUid, 5, res)) return;
 
       const questionBlocks = questions
         .map((q, i) => {
@@ -1903,6 +2035,7 @@ Return ONLY valid JSON:
         });
       }
 
+      if (qaUid) await deductTokens(qaUid, 5, 0.035);
       res.json(parsed);
     } catch (err: any) {
       console.error("Q&A generate error:", err);
@@ -1911,9 +2044,9 @@ Return ONLY valid JSON:
   });
 
   // ── Q&A single regenerate ───────────────────────────────────────────────────
-  app.post("/api/qa/regenerate", aiLimiter, async (req, res) => {
+  app.post("/api/qa/regenerate", async (req, res) => {
     try {
-      const { cvText, jdText, question, wordLimit, bulletPoints, previousAnswer, feedback } = req.body as {
+      const { cvText, jdText, question, wordLimit, bulletPoints, previousAnswer, feedback, userId } = req.body as {
         cvText: string;
         jdText: string;
         question: string;
@@ -1921,10 +2054,14 @@ Return ONLY valid JSON:
         bulletPoints?: string[];
         previousAnswer: string;
         feedback?: string;
+        userId?: string;
       };
 
       if (!cvText || !jdText || !question || !previousAnswer)
         return res.status(400).json({ error: "Missing required fields" });
+
+      const regenUid = typeof userId === "string" ? userId : undefined;
+      if (regenUid && !await requireBalance(regenUid, 1, res)) return;
 
       const limit = wordLimit ? ` Stay within ${wordLimit} words.` : "";
       const bullets = (bulletPoints ?? []).filter(Boolean);
@@ -1952,6 +2089,7 @@ Return ONLY valid JSON:
       );
 
       const parsed = JSON.parse(extractJSON(raw));
+      if (regenUid) await deductTokens(regenUid, 1, 0.008);
       res.json(parsed);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
