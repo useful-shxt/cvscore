@@ -8,9 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmailGate } from "@/components/EmailGate";
 import { LaunchBanner } from "@/components/LaunchBanner";
-import { OnboardingWizard } from "@/components/OnboardingWizard";
-import type { WizardStep } from "@/components/OnboardingWizard";
 import { DrillDownPanel } from "@/components/DrillDownPanel";
+import { InteractiveWizard } from "@/components/InteractiveWizard";
+import { FeatureTip } from "@/components/FeatureTip";
 import { ModeSwitcher } from "@/components/ModeSwitcher";
 import { InlineSwapPanel } from "@/components/InlineSwapPanel";
 import { FileDropZone } from "@/components/FileDropZone";
@@ -1480,6 +1480,12 @@ export default function Home() {
   const [trackerEntries, setTrackerEntries] = useState<TrackerEntry[]>([]);
   const [showDashboard, setShowDashboard] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [wizardStep, setWizardStep] = useState(0);
+  const [wizardScoringPending, setWizardScoringPending] = useState(false);
+  const [wizardLocalCvTab, setWizardLocalCvTab] = useState<"upload" | "paste">("upload");
+  const [wizardTipIdx, setWizardTipIdx] = useState(-1);
+  const [shareScoreDismissed, setShareScoreDismissed] = useState(() => { try { return !!localStorage.getItem("cvscore_share_score_dismissed"); } catch { return false; } });
+  const [shareRewriteDismissed, setShareRewriteDismissed] = useState(() => { try { return !!localStorage.getItem("cvscore_share_rewrite_dismissed"); } catch { return false; } });
   const [showHowToExport, setShowHowToExport] = useState(false);
   const [jdMode, setJdMode] = useState<"paste" | "url" | "screenshot">("paste");
   const [jdUrl, setJdUrl] = useState("");
@@ -1579,6 +1585,14 @@ export default function Home() {
     } catch {}
   }, [user]);
 
+  // Auto-advance wizard to results step when score arrives
+  useEffect(() => {
+    if (score.fast && wizardScoringPending) {
+      setWizardScoringPending(false);
+      setWizardStep(2);
+    }
+  }, [score.fast, wizardScoringPending]);
+
   // After PDF upload, scroll to JD and highlight it if JD is empty
   const handlePdfUploadSuccess = useCallback(() => {
     if (jdText.trim().length < 50) {
@@ -1608,6 +1622,34 @@ export default function Home() {
   const handleWizardComplete = () => {
     try { localStorage.setItem("cvscore_wizard_seen", "true"); } catch {}
     setShowWizard(false);
+    setWizardStep(0);
+    if (stage === "results") setWizardTipIdx(0);
+  };
+
+  const handleWizardScoreClick = () => {
+    setWizardScoringPending(true);
+    handleScore();
+  };
+
+  const dismissShareScore = () => {
+    setShareScoreDismissed(true);
+    try { localStorage.setItem("cvscore_share_score_dismissed", "1"); } catch {}
+  };
+
+  const dismissShareRewrite = () => {
+    setShareRewriteDismissed(true);
+    try { localStorage.setItem("cvscore_share_rewrite_dismissed", "1"); } catch {}
+  };
+
+  const copyShareScoreText = () => {
+    const text = `Just used CVScore to analyse my CV against a job description — scored ${score.fast?.overallScore}/100 with specific feedback on what to improve. Free tool → cvscore.usefulshxt.com`;
+    navigator.clipboard.writeText(text).catch(() => {});
+    toast({ title: "Copied to clipboard!" });
+  };
+
+  const copyRewriteLink = () => {
+    navigator.clipboard.writeText("https://cvscore.usefulshxt.com").catch(() => {});
+    toast({ title: "Link copied!" });
   };
 
   const handleJdModeChange = (v: string) => {
@@ -1777,71 +1819,6 @@ export default function Home() {
     }
   };
 
-  const wizardSteps: WizardStep[] = [
-    {
-      label: "What It Does",
-      content: (
-        <div className="text-center space-y-4 py-4">
-          <div className="text-4xl">🎯</div>
-          <h3 className="font-display font-bold text-white text-lg">What CVScore Does</h3>
-          <p className="text-sm text-[#8895B3] leading-relaxed">Score your CV against any job description, get AI rewrites, cover letters, LinkedIn optimisation, and interview prep — all in one place.</p>
-        </div>
-      ),
-    },
-    {
-      label: "Score",
-      content: (
-        <div className="text-center space-y-4 py-4">
-          <div className="text-4xl">📊</div>
-          <h3 className="font-display font-bold text-white text-lg">Start Here → Score</h3>
-          <p className="text-sm text-[#8895B3] leading-relaxed">Paste your CV and a job description — or just paste a job listing URL and we'll extract it automatically. On mobile? Screenshot the listing and upload it. We'll score the match and show you exactly what to improve.</p>
-        </div>
-      ),
-    },
-    {
-      label: "Rewrite",
-      content: (
-        <div className="text-center space-y-4 py-4">
-          <div className="text-4xl">✍️</div>
-          <h3 className="font-display font-bold text-white text-lg">Improve → Rewrite &amp; Cover Letter</h3>
-          <p className="text-sm text-[#8895B3] leading-relaxed">Get an AI-rewritten CV tailored to the role, plus a matching cover letter. Not happy with the result? Hit regenerate and tell us what to change — more technical, shorter, different focus. Both exportable as Word docs.</p>
-        </div>
-      ),
-    },
-    {
-      label: "LinkedIn",
-      content: (
-        <div className="text-center space-y-4 py-4">
-          <div className="text-4xl">💼</div>
-          <h3 className="font-display font-bold text-white text-lg">Stand Out → LinkedIn</h3>
-          <p className="text-sm text-[#8895B3] leading-relaxed">Optimise your LinkedIn profile by pasting your text, uploading a screenshot, or uploading your full LinkedIn data export for the deepest analysis available — no other tool offers this.</p>
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
-            <p className="text-xs text-amber-400 leading-relaxed"><span className="font-bold">💡 Tip:</span> Download your LinkedIn data export before you start — it takes up to 24 hours for LinkedIn to prepare it.</p>
-          </div>
-        </div>
-      ),
-    },
-    {
-      label: "Interview",
-      content: (
-        <div className="text-center space-y-4 py-4">
-          <div className="text-4xl">🎤</div>
-          <h3 className="font-display font-bold text-white text-lg">Prepare → Interview Q&amp;A</h3>
-          <p className="text-sm text-[#8895B3] leading-relaxed">Generate interview questions specific to the role. Practise answers and get AI feedback. Regenerate any answer you want to improve.</p>
-        </div>
-      ),
-    },
-    {
-      label: "Track",
-      content: (
-        <div className="text-center space-y-4 py-4">
-          <div className="text-4xl">📈</div>
-          <h3 className="font-display font-bold text-white text-lg">Track Progress</h3>
-          <p className="text-sm text-[#8895B3] leading-relaxed">Every session is saved automatically. Come back anytime to see your history, compare scores, and track improvement over time.</p>
-        </div>
-      ),
-    },
-  ];
 
   const fastScoreMutation = useMutation({
     mutationFn: async () => {
@@ -2078,6 +2055,36 @@ export default function Home() {
     );
   }
 
+  // ── Shared interactive wizard overlay (used across all 3 stage screens)
+  const wizardOverlay = showWizard ? (
+    <InteractiveWizard
+      step={wizardStep}
+      scoringPending={wizardScoringPending}
+      cvText={cvText}
+      jdText={jdText}
+      fastScore={score.fast}
+      jdMode={jdMode}
+      jdUrl={jdUrl}
+      jdScreenshots={jdScreenshots}
+      jdFetching={jdFetching}
+      canScore={canScore}
+      localCvTab={wizardLocalCvTab}
+      uploadZone={<UploadZone onText={(t) => { setCvText(t); }} onUploadSuccess={handlePdfUploadSuccess} />}
+      onLocalCvTabChange={setWizardLocalCvTab}
+      onSetCvText={setCvText}
+      onSetJdText={setJdText}
+      onSetJdUrl={setJdUrl}
+      onSetJdScreenshots={setJdScreenshots}
+      onJdModeChange={handleJdModeChange}
+      onJdFetch={handleJdFetch}
+      onJdScreenshot={handleJdScreenshot}
+      onNextStep={() => setWizardStep((s) => s + 1)}
+      onPrevStep={() => setWizardStep((s) => s - 1)}
+      onScoreClick={handleWizardScoreClick}
+      onComplete={handleWizardComplete}
+    />
+  ) : null;
+
   // ── Scoring screen
   if (stage === "scoring") {
     return (
@@ -2100,6 +2107,7 @@ export default function Home() {
             ))}
           </div>
         </div>
+        {wizardOverlay}
       </div>
     );
   }
@@ -2131,6 +2139,11 @@ export default function Home() {
             >
               Not you?
             </button>
+            <button
+              onClick={() => { try { localStorage.removeItem("cvscore_wizard_seen"); } catch {} setWizardStep(0); setWizardScoringPending(false); setShowWizard(true); }}
+              className="w-7 h-7 rounded-full border border-[#2A3558] bg-[#0F1629] text-[#8895B3] hover:text-white hover:border-blue-500/40 text-xs font-bold transition-colors flex items-center justify-center"
+              title="How it works"
+            >?</button>
             <Button size="sm" variant="ghost" onClick={reset} data-testid="button-new-run" className="text-[#8895B3] hover:text-white text-xs">
               ← New CV
             </Button>
@@ -2283,6 +2296,23 @@ export default function Home() {
                   </div>
                 </div>
               ) : null}
+
+              {/* Share card — score tab */}
+              {!shareScoreDismissed && (
+                <div className="rounded-xl border-l-4 border-l-blue-500 border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">📊 Found this useful? Share with friends who are job hunting</p>
+                    <button onClick={dismissShareScore} className="text-[#3D4F6E] hover:text-white transition-colors flex-shrink-0 text-lg leading-none">✕</button>
+                  </div>
+                  <div className="bg-[#1A2340] border border-[#2A3558] rounded-lg px-4 py-3">
+                    <p className="text-xs text-[#8895B3] leading-relaxed">Just used CVScore to analyse my CV against a job description — scored {fast.overallScore}/100 with specific feedback on what to improve. Free tool → cvscore.usefulshxt.com</p>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button onClick={copyShareScoreText} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1A2340] hover:bg-[#2A3558] border border-[#2A3558] text-xs text-white font-semibold transition-colors">📋 Copy</button>
+                    <a href="https://www.linkedin.com/sharing/share-offsite/?url=https://cvscore.usefulshxt.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-xs text-white font-semibold transition-colors">💼 Share on LinkedIn</a>
+                  </div>
+                </div>
+              )}
             </TabsContent>
 
             {/* CV Rewrite */}
@@ -2302,6 +2332,15 @@ export default function Home() {
                       reasonPlaceholder="e.g. Make it more technical, focus on leadership, shorter summary..."
                     />
                   </div>
+                  {!shareRewriteDismissed && (
+                    <div className="rounded-xl border border-[#2A3558] bg-[#0F1629] px-5 py-4 flex items-center justify-between gap-3 flex-wrap">
+                      <p className="text-sm text-white">✍️ CV rewritten and ready — know someone who needs this?</p>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button onClick={copyRewriteLink} className="px-3 py-1.5 rounded-lg bg-[#1A2340] border border-[#2A3558] text-xs text-white font-semibold hover:bg-[#2A3558] transition-colors">📋 Copy link</button>
+                        <button onClick={dismissShareRewrite} className="text-[#3D4F6E] hover:text-white transition-colors text-lg leading-none">✕</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-10 text-center space-y-4">
@@ -2459,7 +2498,7 @@ export default function Home() {
                   )}
 
                   {/* Mode switcher */}
-                  <div className="p-4 border-b border-[#2A3558] bg-[#080D1A]/40">
+                  <div className="p-4 border-b border-[#2A3558] bg-[#080D1A]/40 space-y-2">
                     <div className="inline-flex rounded-xl border border-[#2A3558] bg-[#1A2340] p-1 gap-1">
                       <button
                         onClick={() => setLinkedinMode("paste")}
@@ -2469,11 +2508,15 @@ export default function Home() {
                       </button>
                       <button
                         onClick={() => setLinkedinMode("export")}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${linkedinMode === "export" ? "bg-blue-500 text-white" : "text-[#8895B3] hover:text-white"}`}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${linkedinMode === "export" ? "bg-blue-500 text-white" : "text-[#8895B3] hover:text-white"}`}
                       >
                         Upload Export
+                        <span className="text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full px-1.5 py-0.5 leading-none">⭐ Recommended</span>
                       </button>
                     </div>
+                    {linkedinMode === "paste" && (
+                      <p className="text-xs text-amber-400">💡 For 8x more detailed analysis, upload your LinkedIn data export instead</p>
+                    )}
                   </div>
 
                   {linkedinMode === "paste" ? (
@@ -2672,6 +2715,8 @@ export default function Home() {
             </Button>
           </div>
         </div>
+        {wizardOverlay}
+        <FeatureTip tipIdx={wizardTipIdx} onDismiss={setWizardTipIdx} />
       </div>
     );
   }
@@ -2948,24 +2993,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Welcome wizard overlay */}
-      {showWizard && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg">
-            <OnboardingWizard
-              steps={wizardSteps}
-              onComplete={handleWizardComplete}
-              completeLabel="Get Started →"
-            />
-            <button
-              onClick={handleWizardComplete}
-              className="w-full mt-3 text-center text-xs text-[#3D4F6E] hover:text-[#8895B3] transition-colors py-2"
-            >
-              Skip for now
-            </button>
-          </div>
-        </div>
-      )}
+      {wizardOverlay}
     </div>
   );
 }
