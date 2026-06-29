@@ -1765,6 +1765,7 @@ export default function Home() {
   const tokenBalanceRef = useRef<number>(0);
   const userIdRef = useRef<string | undefined>(undefined);
   const referralPanelRef = useRef<HTMLDivElement>(null);
+  const checkoutPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jdCardRef = useRef<HTMLDivElement>(null);
   const jdTextareaRef = useRef<HTMLTextAreaElement>(null);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1955,11 +1956,41 @@ export default function Home() {
         toast({ title: "Checkout failed", description: data.error || "Please try again", variant: "destructive" });
         return;
       }
-      if (data.checkoutUrl) window.location.href = data.checkoutUrl;
+      if (!data.checkoutUrl) return;
+
+      // Open Stripe in a new tab so the user stays on CVScore
+      window.open(data.checkoutUrl, "_blank");
+
+      // Poll balance every 5s — stop when balance increases (payment confirmed)
+      const balanceAtCheckout = tokenBalanceRef.current;
+      if (checkoutPollingRef.current) clearInterval(checkoutPollingRef.current);
+      let pollCount = 0;
+      checkoutPollingRef.current = setInterval(async () => {
+        pollCount++;
+        if (pollCount > 120) { // give up after 10 minutes
+          clearInterval(checkoutPollingRef.current!);
+          checkoutPollingRef.current = null;
+          return;
+        }
+        try {
+          const uid = userIdRef.current;
+          if (!uid) return;
+          const r = await fetch(`/api/user/balance/${uid}`);
+          if (!r.ok) return;
+          const d = await r.json();
+          const newBal = (d.tokenBalance ?? 0) as number;
+          if (newBal > balanceAtCheckout) {
+            setTokenBalance(newBal);
+            toast({ title: "🎉 Payment successful — tokens added to your balance!" });
+            clearInterval(checkoutPollingRef.current!);
+            checkoutPollingRef.current = null;
+          }
+        } catch {}
+      }, 5000);
     } catch {
       toast({ title: "Checkout failed", description: "Please try again", variant: "destructive" });
     }
-  }, [user?.id, toast]);
+  }, [user?.id, toast]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleWizardScoreClick = () => {
     setWizardScoringPending(true);
