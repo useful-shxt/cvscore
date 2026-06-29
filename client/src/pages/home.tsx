@@ -7,7 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmailGate } from "@/components/EmailGate";
-import { LaunchBanner } from "@/components/LaunchBanner";
+import { InsufficientTokensModal } from "@/components/InsufficientTokensModal";
+import { BundleCards } from "@/components/BundleCards";
 import { DrillDownPanel } from "@/components/DrillDownPanel";
 import { InteractiveWizard } from "@/components/InteractiveWizard";
 import { FeatureTip } from "@/components/FeatureTip";
@@ -34,6 +35,18 @@ interface AppUser {
   email: string;
   name: string;
   runCount: number;
+}
+
+interface PricingBundle {
+  id: string;
+  tokens: number;
+  normalGbp: number;
+  earlyGbp: number;
+}
+interface PricingData {
+  bundles: PricingBundle[];
+  userIsEarlyAdopter: boolean;
+  earlyAdopterSlotsAvailable: boolean;
 }
 
 interface LinkedInExportSection {
@@ -1451,6 +1464,58 @@ function clearAuth() {
   document.cookie = "cvscore_email=; max-age=0; path=/";
 }
 
+function TokenBalanceChip({ balance, flash }: { balance: number | null; flash: { amount: number; key: number } | null }) {
+  if (balance === null) return null;
+  const colorClass = balance > 100 ? "text-green-400 bg-green-500/10 border-green-500/20"
+    : balance > 10 ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+    : "text-red-400 bg-red-500/10 border-red-500/20";
+  return (
+    <div className="relative flex items-center gap-2">
+      <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 border text-xs font-semibold ${colorClass}`}>
+        🪙 {balance}
+        {balance > 0 && balance < 50 && (
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+        )}
+      </div>
+      {balance < 10 && balance > 0 && (
+        <span className="text-xs text-amber-400 hidden sm:block">Running low — top up from £0.75</span>
+      )}
+      {flash && (
+        <span
+          key={flash.key}
+          className="absolute -top-5 right-0 text-xs font-bold text-red-400 pointer-events-none"
+          style={{ animation: "tokenFlashOut 2s forwards" }}
+        >
+          -{flash.amount}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ConversionScreen({ pricingData }: { pricingData: PricingData | null }) {
+  const bundles: PricingBundle[] = pricingData?.bundles ?? [
+    { id: "starter",  tokens: 100,  normalGbp: 1.00, earlyGbp: 0.75 },
+    { id: "standard", tokens: 400,  normalGbp: 3.00, earlyGbp: 2.00 },
+    { id: "power",    tokens: 1000, normalGbp: 7.00, earlyGbp: 5.00 },
+    { id: "ultimate", tokens: 2500, normalGbp: 13.00, earlyGbp: 9.00 },
+  ];
+  return (
+    <div className="rounded-2xl border border-amber-500/40 bg-amber-500/5 p-6 space-y-4">
+      <div className="text-center space-y-1">
+        <p className="text-lg font-bold text-white">You've used all your free tokens</p>
+        <p className="text-sm text-[#8895B3]">Top up to continue scoring CVs and getting AI analysis</p>
+      </div>
+      <BundleCards
+        bundles={bundles}
+        isEarlyAdopter={pricingData?.userIsEarlyAdopter ?? false}
+        earlyAdopterSlotsAvailable={pricingData?.earlyAdopterSlotsAvailable ?? true}
+        onBuy={(b) => alert(`Stripe coming soon — ${b.id} (${b.tokens} tokens)`)}
+      />
+    </div>
+  );
+}
+
 export default function Home() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
@@ -1497,6 +1562,12 @@ export default function Home() {
   const [rewriteSwapLoading, setRewriteSwapLoading] = useState(false);
   const [coverSwapOpen, setCoverSwapOpen] = useState(false);
   const [coverSwapLoading, setCoverSwapLoading] = useState(false);
+  const [tokenBalance, setTokenBalance] = useState<number | null>(null);
+  const [tokenFlash, setTokenFlash] = useState<{ amount: number; key: number } | null>(null);
+  const [pricingData, setPricingData] = useState<PricingData | null>(null);
+  const [insufficientModal, setInsufficientModal] = useState<{ balance: number; required: number } | null>(null);
+  const tokenBalanceRef = useRef<number>(0);
+  const userIdRef = useRef<string | undefined>(undefined);
   const jdCardRef = useRef<HTMLDivElement>(null);
   const jdTextareaRef = useRef<HTMLTextAreaElement>(null);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1584,6 +1655,23 @@ export default function Home() {
       if (!localStorage.getItem("cvscore_wizard_seen")) setShowWizard(true);
     } catch {}
   }, [user]);
+
+  // Keep token refs in sync with state
+  useEffect(() => { tokenBalanceRef.current = tokenBalance ?? 0; }, [tokenBalance]);
+  useEffect(() => { userIdRef.current = user?.id; }, [user]);
+
+  // Fetch token balance + pricing on login
+  useEffect(() => {
+    if (!user?.id) return;
+    fetch(`/api/user/balance/${user.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setTokenBalance(d.tokenBalance ?? 0); })
+      .catch(() => {});
+    fetch(`/api/pricing?userId=${user.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setPricingData(d); })
+      .catch(() => {});
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-advance wizard to results step when score arrives
   useEffect(() => {
@@ -1798,9 +1886,10 @@ export default function Home() {
       setRewrite({ data: data.rewrite, intel: data.companyIntel || "" });
       setRewriteSwapOpen(false);
     } catch (err: any) {
-      toast({ title: "Regenerate failed", description: err.message, variant: "destructive" });
+      if (!handle402(err)) toast({ title: "Regenerate failed", description: err.message, variant: "destructive" });
     } finally {
       setRewriteSwapLoading(false);
+      refetchAndFlash();
     }
   };
 
@@ -1813,12 +1902,44 @@ export default function Home() {
       setCoverLetters(data.coverLetters);
       setCoverSwapOpen(false);
     } catch (err: any) {
-      toast({ title: "Regenerate failed", description: err.message, variant: "destructive" });
+      if (!handle402(err)) toast({ title: "Regenerate failed", description: err.message, variant: "destructive" });
     } finally {
       setCoverSwapLoading(false);
+      refetchAndFlash();
     }
   };
 
+
+  const refetchAndFlash = useCallback(async () => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const prev = tokenBalanceRef.current;
+    try {
+      const res = await fetch(`/api/user/balance/${uid}`);
+      if (res.ok) {
+        const d = await res.json();
+        const newBal = d.tokenBalance ?? 0;
+        setTokenBalance(newBal);
+        if (prev > newBal) {
+          setTokenFlash({ amount: prev - newBal, key: Date.now() });
+          setTimeout(() => setTokenFlash(null), 2100);
+        }
+      }
+    } catch {}
+  }, []);
+
+  const handle402 = useCallback((err: any): boolean => {
+    if (typeof err?.message === "string" && err.message.startsWith("402:")) {
+      try {
+        const json = JSON.parse(err.message.slice(4).trim());
+        if (json.type === "insufficient_tokens") {
+          setInsufficientModal({ balance: json.balance ?? 0, required: json.required ?? 0 });
+          return true;
+        }
+      } catch {}
+    }
+    return false;
+  }, []);
 
   const fastScoreMutation = useMutation({
     mutationFn: async () => {
@@ -1838,9 +1959,12 @@ export default function Home() {
       triggerDeepScore(data.sessionId);
     },
     onError: (err: any) => {
-      toast({ title: "Scoring failed", description: err.message, variant: "destructive" });
+      if (!handle402(err)) {
+        toast({ title: "Scoring failed", description: err.message, variant: "destructive" });
+      }
       setStage("input");
     },
+    onSettled: () => { refetchAndFlash(); },
   });
 
   const triggerDeepScore = async (sessionId: string) => {
@@ -1850,6 +1974,8 @@ export default function Home() {
       setScore((s) => ({ ...s, deep: data as DeepAnalysisResult, deepLoading: false }));
     } catch {
       setScore((s) => ({ ...s, deepLoading: false }));
+    } finally {
+      refetchAndFlash();
     }
   };
 
@@ -1886,8 +2012,9 @@ export default function Home() {
       }).then(r => r.ok ? r.json() : null).then(d => { if (d) setDiffResult(d); }).catch(() => {});
     },
     onError: (err: any) => {
-      toast({ title: "Rewrite failed", description: err.message, variant: "destructive" });
+      if (!handle402(err)) toast({ title: "Rewrite failed", description: err.message, variant: "destructive" });
     },
+    onSettled: () => { refetchAndFlash(); },
   });
 
   const coverMutation = useMutation({
@@ -1900,8 +2027,9 @@ export default function Home() {
       setOutputTab("cover");
     },
     onError: (err: any) => {
-      toast({ title: "Cover letters failed", description: err.message, variant: "destructive" });
+      if (!handle402(err)) toast({ title: "Cover letters failed", description: err.message, variant: "destructive" });
     },
+    onSettled: () => { refetchAndFlash(); },
   });
 
   const linkedinMutation = useMutation({
@@ -1923,8 +2051,9 @@ export default function Home() {
       setOutputTab("linkedin");
     },
     onError: (err: any) => {
-      toast({ title: "LinkedIn analysis failed", description: err.message, variant: "destructive" });
+      if (!handle402(err)) toast({ title: "LinkedIn analysis failed", description: err.message, variant: "destructive" });
     },
+    onSettled: () => { refetchAndFlash(); },
   });
 
   const handleLinkedinExportUpload = async () => {
@@ -1936,8 +2065,12 @@ export default function Home() {
       if (user?.email) form.append("email", user.email);
       const res = await fetch(`${API_BASE}/api/linkedin/analyse-export`, { method: "POST", body: form });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || `Error ${res.status}`);
+        const errData = await res.json().catch(() => ({ error: res.statusText }));
+        if (res.status === 402 && errData.type === "insufficient_tokens") {
+          setInsufficientModal({ balance: errData.balance ?? 0, required: errData.required ?? 0 });
+          return;
+        }
+        throw new Error(errData.error || `Error ${res.status}`);
       }
       const data = await res.json() as LinkedInExportResult;
       setLinkedinExportResult(data);
@@ -1946,6 +2079,7 @@ export default function Home() {
       toast({ title: "Export analysis failed", description: err.message, variant: "destructive" });
     } finally {
       setLinkedinExportLoading(false);
+      refetchAndFlash();
     }
   };
 
@@ -2118,14 +2252,13 @@ export default function Home() {
 
     return (
       <div className="min-h-screen bg-[#080D1A] font-sans">
-        <LaunchBanner />
-
         <header className="border-b border-[#1A2340] px-6 py-3 flex items-center justify-between sticky top-0 bg-[#080D1A]/90 backdrop-blur z-40">
           <div className="flex items-center gap-2.5">
             <CVScoreLogo size={28} />
             <span className="font-display font-semibold text-white">CVScore</span>
           </div>
           <div className="flex items-center gap-3">
+            <TokenBalanceChip balance={tokenBalance} flash={tokenFlash} />
             {trackerEntries.length > 0 && (
               <span className="text-xs text-[#8895B3] hidden sm:flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
@@ -2152,6 +2285,9 @@ export default function Home() {
 
         <div className="max-w-5xl mx-auto px-4 py-6 pb-24 space-y-6">
           {isNewUser && <EmailSentBadge email={user.email} />}
+
+          {/* Zero token conversion screen */}
+          {tokenBalance === 0 && <ConversionScreen pricingData={pricingData} />}
 
           {/* Company Intel — show if available */}
           {companyIntel && <CompanyIntelPanel intel={companyIntel} />}
@@ -2717,6 +2853,14 @@ export default function Home() {
         </div>
         {wizardOverlay}
         <FeatureTip tipIdx={wizardTipIdx} onDismiss={setWizardTipIdx} />
+        {insufficientModal && (
+          <InsufficientTokensModal
+            balance={insufficientModal.balance}
+            required={insufficientModal.required}
+            pricingData={pricingData}
+            onClose={() => setInsufficientModal(null)}
+          />
+        )}
       </div>
     );
   }
@@ -2724,8 +2868,6 @@ export default function Home() {
   // ── Input stage
   return (
     <div className="min-h-screen bg-[#080D1A] font-sans">
-      <LaunchBanner />
-
       <header className="border-b border-[#1A2340] px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <CVScoreLogo size={32} />
@@ -2733,6 +2875,7 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-[#8895B3] hidden md:block">Powered by Perplexity AI</span>
+          <TokenBalanceChip balance={tokenBalance} flash={tokenFlash} />
           {trackerEntries.length > 0 && (
             <span className="text-xs text-blue-400 hidden sm:flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
@@ -2787,6 +2930,9 @@ export default function Home() {
             ← Back to Dashboard
           </button>
         )}
+
+        {/* Zero token conversion screen */}
+        {tokenBalance === 0 && <ConversionScreen pricingData={pricingData} />}
 
         {/* CV input */}
         <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
@@ -2994,6 +3140,14 @@ export default function Home() {
       </div>
 
       {wizardOverlay}
+      {insufficientModal && (
+        <InsufficientTokensModal
+          balance={insufficientModal.balance}
+          required={insufficientModal.required}
+          pricingData={pricingData}
+          onClose={() => setInsufficientModal(null)}
+        />
+      )}
     </div>
   );
 }
