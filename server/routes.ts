@@ -232,7 +232,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         const spent = parseFloat(spentRow?.value ?? "0");
         const limit = parseFloat(limitRow?.value ?? "999999");
         const underBudget = spent < limit;
-        freeTokensAwarded = underBudget ? 1000 : 0;
+        freeTokensAwarded = underBudget ? 125 : 0;
         await supabase
           .from("users")
           .update({ token_balance: freeTokensAwarded, is_free_tier: underBudget })
@@ -292,6 +292,82 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // ── Pricing ──────────────────────────────────────────────────────────────────
+  const BUNDLES = [
+    { id: "starter",  tokens: 100,  normalGbp: 1.00, earlyGbp: 0.75 },
+    { id: "standard", tokens: 400,  normalGbp: 3.00, earlyGbp: 2.00 },
+    { id: "power",    tokens: 1000, normalGbp: 7.00, earlyGbp: 5.00 },
+    { id: "ultimate", tokens: 2500, normalGbp: 13.00, earlyGbp: 9.00 },
+  ];
+
+  app.get("/api/pricing", generalLimiter, async (req, res) => {
+    try {
+      const userId = req.query.userId as string | undefined;
+
+      // Fetch early_adopter_purchases count + limit
+      const [{ data: eaPurchases }, { data: eaLimit }] = await Promise.all([
+        supabase.from("cv_platform_config").select("value").eq("key", "early_adopter_purchases").maybeSingle(),
+        supabase.from("cv_platform_config").select("value").eq("key", "early_adopter_limit").maybeSingle(),
+      ]);
+      const purchases = parseInt(eaPurchases?.value ?? "0", 10);
+      const limit = parseInt(eaLimit?.value ?? "1000", 10);
+      const earlyAdopterSlotsAvailable = purchases < limit;
+
+      // Check if this specific user is already an early adopter
+      let userIsEarlyAdopter = false;
+      if (userId) {
+        const { data: user } = await supabase
+          .from("users")
+          .select("is_early_adopter")
+          .eq("id", userId)
+          .maybeSingle();
+        userIsEarlyAdopter = (user?.is_early_adopter as boolean) ?? false;
+      }
+
+      const applyEarlyPricing = userIsEarlyAdopter || earlyAdopterSlotsAvailable;
+
+      res.json({
+        earlyAdopterSlotsAvailable,
+        earlyAdopterPurchases: purchases,
+        earlyAdopterLimit: limit,
+        userIsEarlyAdopter,
+        bundles: BUNDLES.map((b) => ({
+          id: b.id,
+          tokens: b.tokens,
+          normalPriceGbp: b.normalGbp,
+          earlyAdopterPriceGbp: b.earlyGbp,
+          priceGbp: applyEarlyPricing ? b.earlyGbp : b.normalGbp,
+          isEarlyPrice: applyEarlyPricing,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Mark early adopter on first purchase (call from Stripe webhook in Phase 2) ──
+  // Exported so the Stripe webhook handler can call it directly.
+  async function markEarlyAdopter(userId: string): Promise<{ wasEarlyAdopter: boolean }> {
+    const [{ data: eaPurchases }, { data: eaLimit }] = await Promise.all([
+      supabase.from("cv_platform_config").select("value").eq("key", "early_adopter_purchases").maybeSingle(),
+      supabase.from("cv_platform_config").select("value").eq("key", "early_adopter_limit").maybeSingle(),
+    ]);
+    const purchases = parseInt(eaPurchases?.value ?? "0", 10);
+    const limit = parseInt(eaLimit?.value ?? "1000", 10);
+    if (purchases >= limit) return { wasEarlyAdopter: false };
+
+    await Promise.all([
+      supabase.from("users").update({ is_early_adopter: true }).eq("id", userId),
+      supabase
+        .from("cv_platform_config")
+        .update({ value: (purchases + 1).toString() })
+        .eq("key", "early_adopter_purchases"),
+    ]);
+    return { wasEarlyAdopter: true };
+  }
+  // Expose for Stripe webhook use (Phase 2):
+  (app as any)._markEarlyAdopter = markEarlyAdopter;
 
   // ── PDF Upload ──────────────────────────────────────────────────────────────
   app.post("/api/cv/upload", generalLimiter, upload.single("file"), async (req, res) => {

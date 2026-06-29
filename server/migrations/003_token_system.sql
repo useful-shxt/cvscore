@@ -3,6 +3,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS token_balance INTEGER NOT NULL DEFAUL
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_free_tier BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS total_tokens_used INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS total_spent FLOAT NOT NULL DEFAULT 0.0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_early_adopter BOOLEAN DEFAULT FALSE;
+
+-- ── Early adopter tracking in cv_platform_config ────────────────────────────────
+INSERT INTO cv_platform_config (key, value) VALUES ('early_adopter_purchases', '0') ON CONFLICT (key) DO NOTHING;
+INSERT INTO cv_platform_config (key, value) VALUES ('early_adopter_limit', '1000') ON CONFLICT (key) DO NOTHING;
 
 -- ── Atomic token deduction + platform budget update ─────────────────────────────
 -- Returns jsonb { "success": boolean, "new_balance": integer }
