@@ -1464,19 +1464,23 @@ function clearAuth() {
   document.cookie = "cvscore_email=; max-age=0; path=/";
 }
 
-function TokenBalanceChip({ balance, flash }: { balance: number | null; flash: { amount: number; key: number } | null }) {
+function TokenBalanceChip({ balance, flash, onClick }: { balance: number | null; flash: { amount: number; key: number } | null; onClick?: () => void }) {
   if (balance === null) return null;
   const colorClass = balance > 100 ? "text-green-400 bg-green-500/10 border-green-500/20"
     : balance > 10 ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
     : "text-red-400 bg-red-500/10 border-red-500/20";
   return (
     <div className="relative flex items-center gap-2">
-      <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 border text-xs font-semibold ${colorClass}`}>
+      <button
+        onClick={onClick}
+        className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 border text-xs font-semibold ${onClick ? "hover:opacity-75 transition-opacity" : "cursor-default"} ${colorClass}`}
+      >
         🪙 {balance}
+        {onClick && <span className="opacity-60 font-normal ml-0.5">+</span>}
         {balance > 0 && balance < 50 && (
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
         )}
-      </div>
+      </button>
       {balance < 10 && balance > 0 && (
         <span className="text-xs text-amber-400 hidden sm:block">Running low — top up from £0.75</span>
       )}
@@ -1489,6 +1493,65 @@ function TokenBalanceChip({ balance, flash }: { balance: number | null; flash: {
           -{flash.amount}
         </span>
       )}
+    </div>
+  );
+}
+
+function PricingModal({ pricingData, onBuy, onClose }: { pricingData: PricingData | null; onBuy: (bundleId: string) => void; onClose: () => void }) {
+  const bundles: PricingBundle[] = pricingData?.bundles ?? [
+    { id: "starter",  tokens: 50,   normalGbp: 1.00, earlyGbp: 0.75 },
+    { id: "standard", tokens: 200,  normalGbp: 3.00, earlyGbp: 2.00 },
+    { id: "power",    tokens: 500,  normalGbp: 7.00, earlyGbp: 5.00 },
+    { id: "ultimate", tokens: 1000, normalGbp: 13.00, earlyGbp: 9.00 },
+  ];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg bg-[#0F1629] border border-[#2A3558] rounded-2xl p-6 space-y-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-display text-lg font-bold text-white">Top up tokens</h3>
+            <p className="text-sm text-[#8895B3] mt-1">
+              {pricingData?.earlyAdopterSlotsAvailable
+                ? "Early adopter pricing active — limited slots remaining."
+                : "Tokens from £1 per bundle."}
+            </p>
+          </div>
+          <button onClick={onClose} className="flex-shrink-0 w-8 h-8 rounded-full border border-[#2A3558] text-[#8895B3] hover:text-white flex items-center justify-center text-sm transition-colors">✕</button>
+        </div>
+        <BundleCards
+          bundles={bundles}
+          isEarlyAdopter={pricingData?.userIsEarlyAdopter ?? false}
+          earlyAdopterSlotsAvailable={pricingData?.earlyAdopterSlotsAvailable ?? true}
+          onBuy={(b) => onBuy(b.id)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function BottomBanner({ onOpenPricing, onScrollToReferral }: { onOpenPricing: () => void; onScrollToReferral: () => void }) {
+  const [dismissed, setDismissed] = useState(() => {
+    try { return !!sessionStorage.getItem("cvscore_banner_dismissed"); } catch { return false; }
+  });
+  if (dismissed) return null;
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-30 bg-[#0F1629] border-t border-[#2A3558] px-4 py-2.5">
+      <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-6 flex-1 min-w-0">
+          <button onClick={onOpenPricing} className="text-xs text-left hover:opacity-80 transition-opacity">
+            <span className="text-[#8895B3]">🪙 Tokens from </span>
+            <span className="text-[#3B82F6]">£0.75 · Early adopter pricing for the first 1,000 buyers</span>
+          </button>
+          <button onClick={onScrollToReferral} className="text-xs text-left hover:opacity-80 transition-opacity">
+            <span className="text-[#8895B3]">🎁 </span>
+            <span className="text-[#3B82F6]">Refer friends &amp; earn tokens on every purchase they make</span>
+          </button>
+        </div>
+        <button
+          onClick={() => { setDismissed(true); try { sessionStorage.setItem("cvscore_banner_dismissed", "1"); } catch {} }}
+          className="text-[#3D4F6E] hover:text-[#8895B3] transition-colors flex-shrink-0 text-sm self-start sm:self-auto"
+        >✕</button>
+      </div>
     </div>
   );
 }
@@ -1698,8 +1761,10 @@ export default function Home() {
   const [tokenFlash, setTokenFlash] = useState<{ amount: number; key: number } | null>(null);
   const [pricingData, setPricingData] = useState<PricingData | null>(null);
   const [insufficientModal, setInsufficientModal] = useState<{ balance: number; required: number } | null>(null);
+  const [showPricingModal, setShowPricingModal] = useState(false);
   const tokenBalanceRef = useRef<number>(0);
   const userIdRef = useRef<string | undefined>(undefined);
+  const referralPanelRef = useRef<HTMLDivElement>(null);
   const jdCardRef = useRef<HTMLDivElement>(null);
   const jdTextareaRef = useRef<HTMLTextAreaElement>(null);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1813,6 +1878,26 @@ export default function Home() {
     fetch(`/api/pricing?userId=${user.id}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setPricingData(d); })
+      .catch(() => {});
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Referral earnings notification — show toast only for new earnings since last visit
+  useEffect(() => {
+    if (!user?.id) return;
+    fetch(`/api/referral/dashboard/${user.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d || !d.tokensEarned) return;
+        const earned = d.tokensEarned as number;
+        try {
+          const cached = parseInt(localStorage.getItem("last_known_referral_earned") || "0", 10);
+          if (earned > cached) {
+            const diff = earned - cached;
+            toast({ title: `🎁 You've earned ${diff} token${diff !== 1 ? "s" : ""} from referrals!` });
+            localStorage.setItem("last_known_referral_earned", String(earned));
+          }
+        } catch {}
+      })
       .catch(() => {});
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2420,7 +2505,7 @@ export default function Home() {
             <span className="font-display font-semibold text-white">CVScore</span>
           </div>
           <div className="flex items-center gap-3">
-            <TokenBalanceChip balance={tokenBalance} flash={tokenFlash} />
+            <TokenBalanceChip balance={tokenBalance} flash={tokenFlash} onClick={() => setShowPricingModal(true)} />
             {trackerEntries.length > 0 && (
               <span className="text-xs text-[#8895B3] hidden sm:flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
@@ -3014,10 +3099,18 @@ export default function Home() {
           </div>
 
           {/* Referral panel */}
-          {user?.id && <ReferralPanel userId={user.id} tokenBalance={tokenBalance} />}
+          {user?.id && (
+            <div ref={referralPanelRef}>
+              <ReferralPanel userId={user.id} tokenBalance={tokenBalance} />
+            </div>
+          )}
         </div>
         {wizardOverlay}
         <FeatureTip tipIdx={wizardTipIdx} onDismiss={setWizardTipIdx} />
+        <BottomBanner
+          onOpenPricing={() => setShowPricingModal(true)}
+          onScrollToReferral={() => referralPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        />
         {insufficientModal && (
           <InsufficientTokensModal
             balance={insufficientModal.balance}
@@ -3025,6 +3118,13 @@ export default function Home() {
             pricingData={pricingData}
             onBuy={handleBuy}
             onClose={() => setInsufficientModal(null)}
+          />
+        )}
+        {showPricingModal && (
+          <PricingModal
+            pricingData={pricingData}
+            onBuy={(bundleId) => { setShowPricingModal(false); handleBuy(bundleId); }}
+            onClose={() => setShowPricingModal(false)}
           />
         )}
       </div>
@@ -3041,7 +3141,7 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-[#8895B3] hidden md:block">Powered by Perplexity AI</span>
-          <TokenBalanceChip balance={tokenBalance} flash={tokenFlash} />
+          <TokenBalanceChip balance={tokenBalance} flash={tokenFlash} onClick={() => setShowPricingModal(true)} />
           {trackerEntries.length > 0 && (
             <span className="text-xs text-blue-400 hidden sm:flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
@@ -3313,6 +3413,13 @@ export default function Home() {
           pricingData={pricingData}
           onBuy={handleBuy}
           onClose={() => setInsufficientModal(null)}
+        />
+      )}
+      {showPricingModal && (
+        <PricingModal
+          pricingData={pricingData}
+          onBuy={(bundleId) => { setShowPricingModal(false); handleBuy(bundleId); }}
+          onClose={() => setShowPricingModal(false)}
         />
       )}
     </div>
