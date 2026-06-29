@@ -23,10 +23,10 @@ interface Props {
 
 export function InsufficientTokensModal({ balance, required, pricingData, onBuy, onClose }: Props) {
   const bundles: Bundle[] = pricingData?.bundles ?? [
-    { id: "starter",  tokens: 100,  normalGbp: 1.00, earlyGbp: 0.75 },
-    { id: "standard", tokens: 400,  normalGbp: 3.00, earlyGbp: 2.00 },
-    { id: "power",    tokens: 1000, normalGbp: 7.00, earlyGbp: 5.00 },
-    { id: "ultimate", tokens: 2500, normalGbp: 13.00, earlyGbp: 9.00 },
+    { id: "starter",  tokens: 50,   normalGbp: 1.00, earlyGbp: 0.75 },
+    { id: "standard", tokens: 200,  normalGbp: 3.00, earlyGbp: 2.00 },
+    { id: "power",    tokens: 500,  normalGbp: 7.00, earlyGbp: 5.00 },
+    { id: "ultimate", tokens: 1000, normalGbp: 13.00, earlyGbp: 9.00 },
   ];
 
   return (

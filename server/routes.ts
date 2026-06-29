@@ -202,41 +202,73 @@ async function deductTokens(userId: string, tokenCost: number, apiCost: number):
       p_tokens: tokenCost,
       p_api_cost: apiCost,
     });
-    // Non-blocking referrer credit — does nothing if user has no referrer
-    creditReferrer(userId, tokenCost, apiCost).catch(() => {});
-  } catch { /* non-critical */ }
+    // Non-blocking referrer credit — errors logged, never swallowed silently
+    creditReferrer(userId, tokenCost, apiCost).catch((e) =>
+      console.error("[creditReferrer] unhandled error:", e)
+    );
+  } catch (err) {
+    console.error("[deductTokens] RPC failed:", err);
+  }
 }
 
 // Credit the referrer 50% of margin on every token spend by a referred user.
 async function creditReferrer(spenderUserId: string, tokenCost: number, apiCost: number): Promise<void> {
-  const { data: spender } = await supabase
+  console.log(`[creditReferrer] called — spender=${spenderUserId} tokenCost=${tokenCost} apiCost=${apiCost}`);
+
+  const { data: spender, error: spenderErr } = await supabase
     .from("users")
     .select("referred_by")
     .eq("id", spenderUserId)
     .maybeSingle();
+
+  if (spenderErr) {
+    console.error("[creditReferrer] failed to fetch spender:", spenderErr);
+    return;
+  }
+  console.log(`[creditReferrer] spender.referred_by=${spender?.referred_by ?? "null"}`);
   if (!spender?.referred_by) return;
 
   // Margin = revenue collected - API cost incurred
   const avgRevPerToken = 0.015; // £0.015 average revenue per token
   const margin = (tokenCost * avgRevPerToken) - apiCost;
-  if (margin <= 0) return;
+  console.log(`[creditReferrer] margin=${margin.toFixed(6)} (revenue=${(tokenCost * avgRevPerToken).toFixed(6)} apiCost=${apiCost})`);
+  if (margin <= 0) {
+    console.log("[creditReferrer] margin <= 0, skipping");
+    return;
+  }
 
   // 50% of margin as tokens at £0.01/token
   const referrerTokens = Math.round((margin * 0.5) / 0.01);
-  if (referrerTokens <= 0) return;
+  console.log(`[creditReferrer] referrerTokens=${referrerTokens}`);
+  if (referrerTokens <= 0) {
+    console.log("[creditReferrer] referrerTokens <= 0, skipping");
+    return;
+  }
 
-  const { data: referrer } = await supabase
+  const { data: referrer, error: referrerErr } = await supabase
     .from("users")
     .select("id")
     .eq("referral_code", spender.referred_by)
     .maybeSingle();
+
+  if (referrerErr) {
+    console.error("[creditReferrer] failed to fetch referrer:", referrerErr);
+    return;
+  }
+  console.log(`[creditReferrer] referrer found=${!!referrer} id=${referrer?.id ?? "none"}`);
   if (!referrer) return;
 
-  await supabase.rpc("credit_referral_tokens", {
+  const { error: rpcErr } = await supabase.rpc("credit_referral_tokens", {
     p_referrer_id: referrer.id,
     p_referred_id: spenderUserId,
     p_tokens: referrerTokens,
   });
+
+  if (rpcErr) {
+    console.error("[creditReferrer] credit_referral_tokens RPC failed:", rpcErr);
+  } else {
+    console.log(`[creditReferrer] success — credited ${referrerTokens} tokens to referrer ${referrer.id}`);
+  }
 }
 
 export async function registerRoutes(httpServer: Server, app: Express) {
@@ -380,10 +412,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ── Pricing ──────────────────────────────────────────────────────────────────
   const BUNDLES = [
-    { id: "starter",  tokens: 100,  normalGbp: 1.00, earlyGbp: 0.75 },
-    { id: "standard", tokens: 400,  normalGbp: 3.00, earlyGbp: 2.00 },
-    { id: "power",    tokens: 1000, normalGbp: 7.00, earlyGbp: 5.00 },
-    { id: "ultimate", tokens: 2500, normalGbp: 13.00, earlyGbp: 9.00 },
+    { id: "starter",  tokens: 50,   normalGbp: 1.00, earlyGbp: 0.75 },
+    { id: "standard", tokens: 200,  normalGbp: 3.00, earlyGbp: 2.00 },
+    { id: "power",    tokens: 500,  normalGbp: 7.00, earlyGbp: 5.00 },
+    { id: "ultimate", tokens: 1000, normalGbp: 13.00, earlyGbp: 9.00 },
   ];
 
   app.get("/api/pricing", generalLimiter, async (req, res) => {
@@ -456,10 +488,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ── Stripe ───────────────────────────────────────────────────────────────────
   const PRICE_MAP: Record<string, { priceId: string | undefined; earlyPriceId: string | undefined; tokens: number }> = {
-    starter:  { priceId: process.env.STRIPE_PRICE_STARTER,  earlyPriceId: process.env.STRIPE_PRICE_STARTER_EARLY,  tokens: 100 },
-    standard: { priceId: process.env.STRIPE_PRICE_STANDARD, earlyPriceId: process.env.STRIPE_PRICE_STANDARD_EARLY, tokens: 400 },
-    power:    { priceId: process.env.STRIPE_PRICE_POWER,    earlyPriceId: process.env.STRIPE_PRICE_POWER_EARLY,    tokens: 1000 },
-    ultimate: { priceId: process.env.STRIPE_PRICE_ULTIMATE, earlyPriceId: process.env.STRIPE_PRICE_ULTIMATE_EARLY, tokens: 2500 },
+    starter:  { priceId: process.env.STRIPE_PRICE_STARTER,  earlyPriceId: process.env.STRIPE_PRICE_STARTER_EARLY,  tokens: 50   },
+    standard: { priceId: process.env.STRIPE_PRICE_STANDARD, earlyPriceId: process.env.STRIPE_PRICE_STANDARD_EARLY, tokens: 200  },
+    power:    { priceId: process.env.STRIPE_PRICE_POWER,    earlyPriceId: process.env.STRIPE_PRICE_POWER_EARLY,    tokens: 500  },
+    ultimate: { priceId: process.env.STRIPE_PRICE_ULTIMATE, earlyPriceId: process.env.STRIPE_PRICE_ULTIMATE_EARLY, tokens: 1000 },
   };
 
   app.post("/api/checkout", generalLimiter, async (req, res) => {

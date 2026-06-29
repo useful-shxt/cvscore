@@ -1495,10 +1495,10 @@ function TokenBalanceChip({ balance, flash }: { balance: number | null; flash: {
 
 function ConversionScreen({ pricingData, onBuy }: { pricingData: PricingData | null; onBuy: (bundleId: string) => void }) {
   const bundles: PricingBundle[] = pricingData?.bundles ?? [
-    { id: "starter",  tokens: 100,  normalGbp: 1.00, earlyGbp: 0.75 },
-    { id: "standard", tokens: 400,  normalGbp: 3.00, earlyGbp: 2.00 },
-    { id: "power",    tokens: 1000, normalGbp: 7.00, earlyGbp: 5.00 },
-    { id: "ultimate", tokens: 2500, normalGbp: 13.00, earlyGbp: 9.00 },
+    { id: "starter",  tokens: 50,   normalGbp: 1.00, earlyGbp: 0.75 },
+    { id: "standard", tokens: 200,  normalGbp: 3.00, earlyGbp: 2.00 },
+    { id: "power",    tokens: 500,  normalGbp: 7.00, earlyGbp: 5.00 },
+    { id: "ultimate", tokens: 1000, normalGbp: 13.00, earlyGbp: 9.00 },
   ];
   return (
     <div className="rounded-2xl border border-amber-500/40 bg-amber-500/5 p-6 space-y-4">
