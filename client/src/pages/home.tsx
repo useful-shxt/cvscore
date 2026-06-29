@@ -1493,7 +1493,7 @@ function TokenBalanceChip({ balance, flash }: { balance: number | null; flash: {
   );
 }
 
-function ConversionScreen({ pricingData }: { pricingData: PricingData | null }) {
+function ConversionScreen({ pricingData, onBuy }: { pricingData: PricingData | null; onBuy: (bundleId: string) => void }) {
   const bundles: PricingBundle[] = pricingData?.bundles ?? [
     { id: "starter",  tokens: 100,  normalGbp: 1.00, earlyGbp: 0.75 },
     { id: "standard", tokens: 400,  normalGbp: 3.00, earlyGbp: 2.00 },
@@ -1510,7 +1510,7 @@ function ConversionScreen({ pricingData }: { pricingData: PricingData | null }) 
         bundles={bundles}
         isEarlyAdopter={pricingData?.userIsEarlyAdopter ?? false}
         earlyAdopterSlotsAvailable={pricingData?.earlyAdopterSlotsAvailable ?? true}
-        onBuy={(b) => alert(`Stripe coming soon — ${b.id} (${b.tokens} tokens)`)}
+        onBuy={(b) => onBuy(b.id)}
       />
     </div>
   );
@@ -1656,6 +1656,17 @@ export default function Home() {
     } catch {}
   }, [user]);
 
+  // Payment success — detect ?payment=success in hash after Stripe redirect
+  useEffect(() => {
+    if (!user) return;
+    const hash = window.location.hash;
+    if (hash.includes("payment=success")) {
+      window.history.replaceState({}, "", window.location.pathname + window.location.search + "#/cvscore");
+      toast({ title: "🎉 Payment successful — tokens added to your balance!" });
+      setTimeout(() => refetchAndFlash(), 2000);
+    }
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Keep token refs in sync with state
   useEffect(() => { tokenBalanceRef.current = tokenBalance ?? 0; }, [tokenBalance]);
   useEffect(() => { userIdRef.current = user?.id; }, [user]);
@@ -1713,6 +1724,25 @@ export default function Home() {
     setWizardStep(0);
     if (stage === "results") setWizardTipIdx(0);
   };
+
+  const handleBuy = useCallback(async (bundleId: string) => {
+    if (!user?.id) return;
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, bundle: bundleId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Checkout failed", description: data.error || "Please try again", variant: "destructive" });
+        return;
+      }
+      if (data.checkoutUrl) window.location.href = data.checkoutUrl;
+    } catch {
+      toast({ title: "Checkout failed", description: "Please try again", variant: "destructive" });
+    }
+  }, [user?.id, toast]);
 
   const handleWizardScoreClick = () => {
     setWizardScoringPending(true);
@@ -2287,7 +2317,7 @@ export default function Home() {
           {isNewUser && <EmailSentBadge email={user.email} />}
 
           {/* Zero token conversion screen */}
-          {tokenBalance === 0 && <ConversionScreen pricingData={pricingData} />}
+          {tokenBalance === 0 && <ConversionScreen pricingData={pricingData} onBuy={handleBuy} />}
 
           {/* Company Intel — show if available */}
           {companyIntel && <CompanyIntelPanel intel={companyIntel} />}
@@ -2858,6 +2888,7 @@ export default function Home() {
             balance={insufficientModal.balance}
             required={insufficientModal.required}
             pricingData={pricingData}
+            onBuy={handleBuy}
             onClose={() => setInsufficientModal(null)}
           />
         )}
@@ -2932,7 +2963,7 @@ export default function Home() {
         )}
 
         {/* Zero token conversion screen */}
-        {tokenBalance === 0 && <ConversionScreen pricingData={pricingData} />}
+        {tokenBalance === 0 && <ConversionScreen pricingData={pricingData} onBuy={handleBuy} />}
 
         {/* CV input */}
         <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-3">
@@ -3145,6 +3176,7 @@ export default function Home() {
           balance={insufficientModal.balance}
           required={insufficientModal.required}
           pricingData={pricingData}
+          onBuy={handleBuy}
           onClose={() => setInsufficientModal(null)}
         />
       )}

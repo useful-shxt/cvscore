@@ -17,10 +17,11 @@ interface Props {
   balance: number;
   required: number;
   pricingData: PricingData | null;
+  onBuy: (bundleId: string) => void;
   onClose: () => void;
 }
 
-export function InsufficientTokensModal({ balance, required, pricingData, onClose }: Props) {
+export function InsufficientTokensModal({ balance, required, pricingData, onBuy, onClose }: Props) {
   const bundles: Bundle[] = pricingData?.bundles ?? [
     { id: "starter",  tokens: 100,  normalGbp: 1.00, earlyGbp: 0.75 },
     { id: "standard", tokens: 400,  normalGbp: 3.00, earlyGbp: 2.00 },
@@ -51,7 +52,7 @@ export function InsufficientTokensModal({ balance, required, pricingData, onClos
           bundles={bundles}
           isEarlyAdopter={pricingData?.userIsEarlyAdopter ?? false}
           earlyAdopterSlotsAvailable={pricingData?.earlyAdopterSlotsAvailable ?? true}
-          onBuy={(b) => alert(`Stripe coming soon — ${b.id} (${b.tokens} tokens)`)}
+          onBuy={(b) => onBuy(b.id)}
         />
 
         <button

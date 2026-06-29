@@ -366,6 +366,119 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   // Expose for Stripe webhook use (Phase 2):
   (app as any)._markEarlyAdopter = markEarlyAdopter;
 
+  // ── Stripe ───────────────────────────────────────────────────────────────────
+  const PRICE_MAP: Record<string, { priceId: string | undefined; earlyPriceId: string | undefined; tokens: number }> = {
+    starter:  { priceId: process.env.STRIPE_PRICE_STARTER,  earlyPriceId: process.env.STRIPE_PRICE_STARTER_EARLY,  tokens: 100 },
+    standard: { priceId: process.env.STRIPE_PRICE_STANDARD, earlyPriceId: process.env.STRIPE_PRICE_STANDARD_EARLY, tokens: 400 },
+    power:    { priceId: process.env.STRIPE_PRICE_POWER,    earlyPriceId: process.env.STRIPE_PRICE_POWER_EARLY,    tokens: 1000 },
+    ultimate: { priceId: process.env.STRIPE_PRICE_ULTIMATE, earlyPriceId: process.env.STRIPE_PRICE_ULTIMATE_EARLY, tokens: 2500 },
+  };
+
+  app.post("/api/checkout", generalLimiter, async (req, res) => {
+    try {
+      const { userId, bundle } = req.body as { userId?: string; bundle?: string };
+      if (!userId || !bundle || !PRICE_MAP[bundle]) {
+        return res.status(400).json({ error: "Invalid userId or bundle" });
+      }
+
+      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      if (!stripeKey) return res.status(500).json({ error: "Stripe not configured" });
+
+      const { default: Stripe } = await import("stripe");
+      const stripe = new Stripe(stripeKey);
+
+      // Determine whether user gets early-adopter price
+      const { data: userData } = await supabase
+        .from("users")
+        .select("is_early_adopter")
+        .eq("id", userId)
+        .maybeSingle();
+
+      const [{ data: eaPurchases }, { data: eaLimit }] = await Promise.all([
+        supabase.from("cv_platform_config").select("value").eq("key", "early_adopter_purchases").maybeSingle(),
+        supabase.from("cv_platform_config").select("value").eq("key", "early_adopter_limit").maybeSingle(),
+      ]);
+      const purchases = parseInt(eaPurchases?.value ?? "0", 10);
+      const limit = parseInt(eaLimit?.value ?? "1000", 10);
+
+      const isEarly = (userData?.is_early_adopter as boolean) || purchases < limit;
+      const priceEntry = PRICE_MAP[bundle];
+      const selectedPriceId = isEarly ? (priceEntry.earlyPriceId ?? priceEntry.priceId) : priceEntry.priceId;
+
+      if (!selectedPriceId) {
+        return res.status(500).json({ error: `Price ID not configured for bundle: ${bundle}` });
+      }
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        line_items: [{ price: selectedPriceId, quantity: 1 }],
+        metadata: { userId, bundle, tokens: String(priceEntry.tokens) },
+        success_url: "https://cvscore.usefulshxt.com/#/cvscore?payment=success",
+        cancel_url: "https://cvscore.usefulshxt.com/#/cvscore?payment=cancelled",
+      });
+
+      res.json({ checkoutUrl: session.url });
+    } catch (err: any) {
+      console.error("[checkout]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Webhook — raw body required for Stripe signature verification.
+  // express.json() in index.ts captures req.rawBody via verify(), so we use that.
+  app.post("/api/webhook/stripe", async (req, res) => {
+    const sig = req.headers["stripe-signature"] as string | undefined;
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    if (!webhookSecret) {
+      console.error("[webhook] STRIPE_WEBHOOK_SECRET not set");
+      return res.status(500).json({ error: "Webhook not configured" });
+    }
+
+    let event: any;
+    try {
+      const { default: Stripe } = await import("stripe");
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
+      const rawBody = (req as any).rawBody as Buffer;
+      event = stripe.webhooks.constructEvent(rawBody, sig ?? "", webhookSecret);
+    } catch (err: any) {
+      console.error("[webhook] Signature verification failed:", err.message);
+      return res.status(400).json({ error: `Webhook error: ${err.message}` });
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as any;
+      const { userId, bundle, tokens: tokensStr } = session.metadata ?? {};
+      const tokens = parseInt(tokensStr ?? "0", 10);
+
+      if (!userId || !tokens) {
+        console.error("[webhook] Missing metadata in session", session.id);
+        return res.status(200).json({ received: true });
+      }
+
+      try {
+        // Credit tokens
+        await supabase.rpc("credit_user_tokens", { p_user_id: userId, p_tokens: tokens });
+        console.log(`[webhook] Credited ${tokens} tokens to user ${userId} (bundle: ${bundle})`);
+
+        // Mark early adopter if slots still available and not already marked
+        const { data: userData } = await supabase
+          .from("users")
+          .select("is_early_adopter")
+          .eq("id", userId)
+          .maybeSingle();
+
+        if (!(userData?.is_early_adopter as boolean)) {
+          await markEarlyAdopter(userId);
+        }
+      } catch (err: any) {
+        console.error("[webhook] Token credit failed:", err.message);
+      }
+    }
+
+    res.status(200).json({ received: true });
+  });
+
   // ── PDF Upload ──────────────────────────────────────────────────────────────
   app.post("/api/cv/upload", generalLimiter, upload.single("file"), async (req, res) => {
     try {
