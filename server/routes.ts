@@ -202,72 +202,8 @@ async function deductTokens(userId: string, tokenCost: number, apiCost: number):
       p_tokens: tokenCost,
       p_api_cost: apiCost,
     });
-    // Non-blocking referrer credit — errors logged, never swallowed silently
-    creditReferrer(userId, tokenCost, apiCost).catch((e) =>
-      console.error("[creditReferrer] unhandled error:", e)
-    );
   } catch (err) {
     console.error("[deductTokens] RPC failed:", err);
-  }
-}
-
-// Credit the referrer 50% of margin on every token spend by a referred user.
-async function creditReferrer(spenderUserId: string, tokenCost: number, apiCost: number): Promise<void> {
-  console.log(`[creditReferrer] called — spender=${spenderUserId} tokenCost=${tokenCost} apiCost=${apiCost}`);
-
-  const { data: spender, error: spenderErr } = await supabase
-    .from("users")
-    .select("referred_by")
-    .eq("id", spenderUserId)
-    .maybeSingle();
-
-  if (spenderErr) {
-    console.error("[creditReferrer] failed to fetch spender:", spenderErr);
-    return;
-  }
-  console.log(`[creditReferrer] spender.referred_by=${spender?.referred_by ?? "null"}`);
-  if (!spender?.referred_by) return;
-
-  // Margin = revenue collected - API cost incurred
-  const avgRevPerToken = 0.015; // £0.015 average revenue per token
-  const margin = (tokenCost * avgRevPerToken) - apiCost;
-  console.log(`[creditReferrer] margin=${margin.toFixed(6)} (revenue=${(tokenCost * avgRevPerToken).toFixed(6)} apiCost=${apiCost})`);
-  if (margin <= 0) {
-    console.log("[creditReferrer] margin <= 0, skipping");
-    return;
-  }
-
-  // 50% of margin as tokens at £0.01/token
-  const referrerTokens = Math.round((margin * 0.5) / 0.01);
-  console.log(`[creditReferrer] referrerTokens=${referrerTokens}`);
-  if (referrerTokens <= 0) {
-    console.log("[creditReferrer] referrerTokens <= 0, skipping");
-    return;
-  }
-
-  const { data: referrer, error: referrerErr } = await supabase
-    .from("users")
-    .select("id")
-    .eq("referral_code", spender.referred_by)
-    .maybeSingle();
-
-  if (referrerErr) {
-    console.error("[creditReferrer] failed to fetch referrer:", referrerErr);
-    return;
-  }
-  console.log(`[creditReferrer] referrer found=${!!referrer} id=${referrer?.id ?? "none"}`);
-  if (!referrer) return;
-
-  const { error: rpcErr } = await supabase.rpc("credit_referral_tokens", {
-    p_referrer_id: referrer.id,
-    p_referred_id: spenderUserId,
-    p_tokens: referrerTokens,
-  });
-
-  if (rpcErr) {
-    console.error("[creditReferrer] credit_referral_tokens RPC failed:", rpcErr);
-  } else {
-    console.log(`[creditReferrer] success — credited ${referrerTokens} tokens to referrer ${referrer.id}`);
   }
 }
 
@@ -576,6 +512,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         return res.status(200).json({ received: true });
       }
 
+      // Fixed referral reward per bundle (margin × 50% as tokens at £0.01/token)
+      const REFERRAL_REWARDS: Record<string, number> = {
+        starter:  26,
+        standard: 46,
+        power:    100,
+        ultimate: 130,
+      };
+
       try {
         // Credit tokens
         await supabase.rpc("credit_user_tokens", { p_user_id: userId, p_tokens: tokens });
@@ -584,12 +528,42 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         // Mark early adopter if slots still available and not already marked
         const { data: userData } = await supabase
           .from("users")
-          .select("is_early_adopter")
+          .select("is_early_adopter, referred_by")
           .eq("id", userId)
           .maybeSingle();
 
         if (!(userData?.is_early_adopter as boolean)) {
           await markEarlyAdopter(userId);
+        }
+
+        // Credit referrer if buyer was referred and this bundle has a reward
+        const rewardTokens = bundle ? (REFERRAL_REWARDS[bundle] ?? 0) : 0;
+        const referredBy = userData?.referred_by as string | null | undefined;
+        console.log(`[webhook] referral check — referred_by=${referredBy ?? "none"} rewardTokens=${rewardTokens}`);
+
+        if (rewardTokens > 0 && referredBy) {
+          const { data: referrer, error: refErr } = await supabase
+            .from("users")
+            .select("id")
+            .eq("referral_code", referredBy)
+            .maybeSingle();
+
+          if (refErr) {
+            console.error("[webhook] referrer lookup failed:", refErr);
+          } else if (!referrer) {
+            console.log(`[webhook] no referrer found for code: ${referredBy}`);
+          } else {
+            const { error: rpcErr } = await supabase.rpc("credit_referral_tokens", {
+              p_referrer_id: referrer.id,
+              p_referred_id: userId,
+              p_tokens: rewardTokens,
+            });
+            if (rpcErr) {
+              console.error("[webhook] credit_referral_tokens failed:", rpcErr);
+            } else {
+              console.log(`[webhook] Credited ${rewardTokens} referral tokens to referrer ${referrer.id}`);
+            }
+          }
         }
       } catch (err: any) {
         console.error("[webhook] Token credit failed:", err.message);
