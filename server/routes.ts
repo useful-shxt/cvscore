@@ -152,6 +152,14 @@ function extractCompanyName(jd: string): string | null {
   return truncated.slice(0, 40) || null;
 }
 
+// ─── Referral code generator ─────────────────────────────────────────────────
+function generateReferralCode(name: string): string {
+  const base = name.trim().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) || "user";
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const suffix = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  return `${base}_${suffix}`;
+}
+
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
 // Look up a userId from an email address (for routes that only receive email)
@@ -194,7 +202,41 @@ async function deductTokens(userId: string, tokenCost: number, apiCost: number):
       p_tokens: tokenCost,
       p_api_cost: apiCost,
     });
-  } catch { /* non-critical — log silently */ }
+    // Non-blocking referrer credit — does nothing if user has no referrer
+    creditReferrer(userId, tokenCost, apiCost).catch(() => {});
+  } catch { /* non-critical */ }
+}
+
+// Credit the referrer 50% of margin on every token spend by a referred user.
+async function creditReferrer(spenderUserId: string, tokenCost: number, apiCost: number): Promise<void> {
+  const { data: spender } = await supabase
+    .from("users")
+    .select("referred_by")
+    .eq("id", spenderUserId)
+    .maybeSingle();
+  if (!spender?.referred_by) return;
+
+  // Margin = revenue collected - API cost incurred
+  const avgRevPerToken = 0.015; // £0.015 average revenue per token
+  const margin = (tokenCost * avgRevPerToken) - apiCost;
+  if (margin <= 0) return;
+
+  // 50% of margin as tokens at £0.01/token
+  const referrerTokens = Math.round((margin * 0.5) / 0.01);
+  if (referrerTokens <= 0) return;
+
+  const { data: referrer } = await supabase
+    .from("users")
+    .select("id")
+    .eq("referral_code", spender.referred_by)
+    .maybeSingle();
+  if (!referrer) return;
+
+  await supabase.rpc("credit_referral_tokens", {
+    p_referrer_id: referrer.id,
+    p_referred_id: spenderUserId,
+    p_tokens: referrerTokens,
+  });
 }
 
 export async function registerRoutes(httpServer: Server, app: Express) {
@@ -206,7 +248,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   // ── User registration ───────────────────────────────────────────────────────
   app.post("/api/user/register", registerLimiter, async (req, res) => {
     try {
-      const { email, name } = req.body;
+      const { email, name, ref, gift } = req.body;
       if (!email || !name) return res.status(400).json({ error: "email and name required" });
       if (typeof email !== "string" || typeof name !== "string")
         return res.status(400).json({ error: "Invalid input types" });
@@ -233,10 +275,56 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         const limit = parseFloat(limitRow?.value ?? "999999");
         const underBudget = spent < limit;
         freeTokensAwarded = underBudget ? 125 : 0;
+
+        // Generate a unique referral code for this new user
+        const referralCode = generateReferralCode(name.trim());
+
+        // Resolve referrer if ?ref= was provided
+        let referrerId: string | null = null;
+        let validRef: string | null = null;
+        if (ref && typeof ref === "string" && ref.trim()) {
+          const { data: referrerData } = await supabase
+            .from("users")
+            .select("id, referral_code")
+            .eq("referral_code", ref.trim())
+            .maybeSingle();
+          if (referrerData) {
+            referrerId = referrerData.id as string;
+            validRef = referrerData.referral_code as string;
+          }
+        }
+
+        // Gift amount (only applies if referrer was found)
+        const giftAmount = validRef && gift ? Math.max(0, parseInt(String(gift), 10) || 0) : 0;
+
+        // Persist: base tokens + gift tokens
+        const totalTokens = freeTokensAwarded + giftAmount;
         await supabase
           .from("users")
-          .update({ token_balance: freeTokensAwarded, is_free_tier: underBudget })
+          .update({
+            token_balance: totalTokens,
+            is_free_tier: underBudget,
+            referral_code: referralCode,
+            ...(validRef ? { referred_by: validRef } : {}),
+          })
           .eq("id", user.id);
+
+        // Referrer bookkeeping
+        if (referrerId) {
+          await supabase.rpc("increment_referral_count", { p_user_id: referrerId });
+          // Link the pending gift log entry (if gift was sent beforehand)
+          if (giftAmount > 0) {
+            // Link pending gift log entry — updates all unclaimed gifts of this amount from this referrer
+            await supabase
+              .from("cv_referral_log")
+              .update({ referred_id: user.id })
+              .eq("referrer_id", referrerId)
+              .eq("tokens_gifted", giftAmount)
+              .is("referred_id", null);
+          }
+        }
+
+        freeTokensAwarded = totalTokens;
       } else {
         await storage.touchLastSeen(user.id);
       }
@@ -477,6 +565,119 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     }
 
     res.status(200).json({ received: true });
+  });
+
+  // ── Referral: generate gift invite link ─────────────────────────────────────
+  app.post("/api/referral/gift", generalLimiter, async (req, res) => {
+    try {
+      const { userId, amount } = req.body as { userId?: string; amount?: number };
+      if (!userId || !amount) return res.status(400).json({ error: "userId and amount required" });
+      const tokens = Math.max(1, parseInt(String(amount), 10) || 0);
+
+      // Check balance
+      const { data: userData } = await supabase
+        .from("users")
+        .select("token_balance, referral_code")
+        .eq("id", userId)
+        .maybeSingle();
+      if (!userData) return res.status(404).json({ error: "User not found" });
+
+      const balance = (userData.token_balance as number) ?? 0;
+      if (balance < tokens) return res.status(402).json({ error: "Insufficient tokens", balance, required: tokens });
+
+      let refCode = userData.referral_code as string | null;
+      if (!refCode) {
+        // Lazy-generate referral code if somehow missing
+        const { data: u } = await supabase.from("users").select("name").eq("id", userId).maybeSingle();
+        refCode = generateReferralCode((u?.name as string) || "user");
+        await supabase.from("users").update({ referral_code: refCode }).eq("id", userId);
+      }
+
+      // Deduct from referrer
+      await supabase
+        .from("users")
+        .update({ token_balance: balance - tokens })
+        .eq("id", userId);
+
+      // Log pending gift (referred_id is null until recipient signs up)
+      await supabase.from("cv_referral_log").insert({ referrer_id: userId, tokens_gifted: tokens });
+
+      const inviteLink = `https://cvscore.usefulshxt.com?ref=${encodeURIComponent(refCode)}&gift=${tokens}`;
+
+      const { data: fresh } = await supabase
+        .from("users")
+        .select("token_balance")
+        .eq("id", userId)
+        .maybeSingle();
+
+      res.json({ inviteLink, tokensGifted: tokens, remainingBalance: (fresh?.token_balance as number) ?? 0 });
+    } catch (err: any) {
+      console.error("Gift error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Referral: dashboard stats ────────────────────────────────────────────────
+  app.get("/api/referral/dashboard/:userId", generalLimiter, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { data: user } = await supabase
+        .from("users")
+        .select("referral_code, referral_count, referral_tokens_earned")
+        .eq("id", userId)
+        .maybeSingle();
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      let refCode = user.referral_code as string | null;
+      if (!refCode) {
+        const { data: u } = await supabase.from("users").select("name").eq("id", userId).maybeSingle();
+        refCode = generateReferralCode((u?.name as string) || "user");
+        await supabase.from("users").update({ referral_code: refCode }).eq("id", userId);
+      }
+
+      const { data: logs } = await supabase
+        .from("cv_referral_log")
+        .select("referred_id, tokens_gifted, tokens_earned, created_at")
+        .eq("referrer_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      // Get masked emails for referred users
+      const referralRows = await Promise.all(
+        (logs ?? []).map(async (row: any) => {
+          let maskedEmail = "pending";
+          if (row.referred_id) {
+            const { data: ref } = await supabase
+              .from("users")
+              .select("email")
+              .eq("id", row.referred_id)
+              .maybeSingle();
+            if (ref?.email) {
+              const parts = (ref.email as string).split("@");
+              maskedEmail = parts[0].slice(0, 2) + "***@" + parts[1];
+            }
+          }
+          return {
+            email: maskedEmail,
+            tokensGifted: row.tokens_gifted,
+            tokensEarned: row.tokens_earned,
+            createdAt: row.created_at,
+          };
+        })
+      );
+
+      const referralLink = `https://cvscore.usefulshxt.com?ref=${encodeURIComponent(refCode)}`;
+      res.json({
+        referralCode: refCode,
+        referralLink,
+        referralCount: (user.referral_count as number) ?? 0,
+        tokensEarned: (user.referral_tokens_earned as number) ?? 0,
+        referrals: referralRows,
+      });
+    } catch (err: any) {
+      console.error("Dashboard error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // ── PDF Upload ──────────────────────────────────────────────────────────────

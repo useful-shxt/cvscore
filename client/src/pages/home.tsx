@@ -1516,6 +1516,138 @@ function ConversionScreen({ pricingData, onBuy }: { pricingData: PricingData | n
   );
 }
 
+interface ReferralDashboard {
+  referralCode: string;
+  referralLink: string;
+  referralCount: number;
+  tokensEarned: number;
+  referrals: { email: string; tokensGifted: number; tokensEarned: number; createdAt: string }[];
+}
+
+function ReferralPanel({ userId, tokenBalance }: { userId: string; tokenBalance: number | null }) {
+  const [giftAmount, setGiftAmount] = useState(25);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [dashboard, setDashboard] = useState<ReferralDashboard | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetch(`/api/referral/dashboard/${userId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setDashboard(d); })
+      .catch(() => {});
+  }, [userId]);
+
+  const handleGenerate = async () => {
+    const bal = tokenBalance ?? 0;
+    const tokensToGift = Math.min(giftAmount, bal);
+    if (tokensToGift < 1) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/referral/gift", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, amount: tokensToGift }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.error || "Failed to generate link", variant: "destructive" });
+        return;
+      }
+      setInviteLink(data.inviteLink);
+    } catch {
+      toast({ title: "Failed to generate link", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyLink = () => {
+    if (!inviteLink) return;
+    navigator.clipboard.writeText(inviteLink).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const balance = tokenBalance ?? 0;
+  const canGift = balance >= 1;
+
+  return (
+    <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] p-5 space-y-4">
+      <div>
+        <p className="text-sm font-semibold text-white">🎁 Share CVScore</p>
+        <p className="text-xs text-[#8895B3] mt-0.5">Gift tokens to a friend — earn 50% of our margin back on everything they spend, forever.</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <label className="text-xs text-[#8895B3] block mb-1">Tokens to gift</label>
+            <input
+              type="number"
+              min={1}
+              max={balance}
+              value={giftAmount}
+              onChange={e => setGiftAmount(Math.max(1, parseInt(e.target.value) || 1))}
+              className="w-full bg-[#1A2340] border border-[#2A3558] rounded-lg text-white text-sm px-3 py-2 outline-none focus:border-blue-500/50"
+            />
+          </div>
+          <button
+            onClick={handleGenerate}
+            disabled={loading || !canGift}
+            className="px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold disabled:opacity-50 transition-colors flex-shrink-0"
+          >
+            {loading ? "..." : "Generate Link"}
+          </button>
+        </div>
+
+        {!canGift && (
+          <p className="text-xs text-amber-400">Top up your balance to start gifting tokens.</p>
+        )}
+
+        {inviteLink && (
+          <div className="flex items-center gap-2 bg-[#1A2340] rounded-lg p-2.5 border border-[#2A3558]">
+            <p className="text-xs text-[#8895B3] flex-1 truncate">{inviteLink}</p>
+            <button
+              onClick={copyLink}
+              className="text-xs px-2.5 py-1.5 rounded bg-[#2A3558] text-[#8895B3] hover:text-white flex-shrink-0 transition-colors"
+            >
+              {copied ? "✓ Copied" : "📋 Copy"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {dashboard && (dashboard.referralCount > 0 || dashboard.tokensEarned > 0) && (
+        <div className="space-y-3 pt-3 border-t border-[#2A3558]">
+          <div className="flex gap-6">
+            <div>
+              <p className="text-lg font-bold text-white">{dashboard.referralCount}</p>
+              <p className="text-xs text-[#8895B3]">friends referred</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-green-400">{dashboard.tokensEarned}</p>
+              <p className="text-xs text-[#8895B3]">tokens earned</p>
+            </div>
+          </div>
+          {dashboard.referrals.length > 0 && (
+            <div className="space-y-1">
+              {dashboard.referrals.slice(0, 5).map((r, i) => (
+                <p key={i} className="text-xs text-[#8895B3]">
+                  <span className="text-white">{r.email}</span>
+                  {r.tokensGifted > 0 && <span> · gifted {r.tokensGifted}</span>}
+                  {r.tokensEarned > 0 && <span className="text-green-400"> · earned {r.tokensEarned}</span>}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
@@ -2880,6 +3012,9 @@ export default function Home() {
               Score another role →
             </Button>
           </div>
+
+          {/* Referral panel */}
+          {user?.id && <ReferralPanel userId={user.id} tokenBalance={tokenBalance} />}
         </div>
         {wizardOverlay}
         <FeatureTip tipIdx={wizardTipIdx} onDismiss={setWizardTipIdx} />

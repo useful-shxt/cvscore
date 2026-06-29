@@ -12,7 +12,7 @@ interface User {
 }
 
 interface EmailGateProps {
-  onUser: (user: User, isNew: boolean) => void;
+  onUser: (user: User, isNew: boolean, freeTokensAwarded?: number) => void;
 }
 
 function CVScoreLogo() {
@@ -28,11 +28,22 @@ function CVScoreLogo() {
   );
 }
 
+function getUrlReferral(): { ref: string | null; gift: number } {
+  const params = new URLSearchParams(window.location.search);
+  const ref = params.get("ref");
+  const giftRaw = params.get("gift");
+  const gift = giftRaw ? Math.max(0, parseInt(giftRaw, 10) || 0) : 0;
+  return { ref, gift };
+}
+
 export function EmailGate({ onUser }: EmailGateProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const { ref, gift } = getUrlReferral();
+  const hasGift = !!ref && gift > 0;
 
   const isValid = name.trim().length > 1 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
@@ -43,12 +54,16 @@ export function EmailGate({ onUser }: EmailGateProps) {
     setError("");
 
     try {
-      const res = await apiRequest("POST", "/api/user/register", {
+      const body: Record<string, unknown> = {
         name: name.trim(),
         email: email.trim().toLowerCase(),
-      });
-      const { user, isNew } = await res.json();
-      onUser({ ...user, email: email.trim().toLowerCase() }, isNew);
+      };
+      if (ref) body.ref = ref;
+      if (gift > 0) body.gift = gift;
+
+      const res = await apiRequest("POST", "/api/user/register", body);
+      const { user, isNew, freeTokensAwarded } = await res.json();
+      onUser({ ...user, email: email.trim().toLowerCase() }, isNew, freeTokensAwarded);
     } catch (err: any) {
       setError("Something went wrong — please try again");
     } finally {
@@ -57,17 +72,23 @@ export function EmailGate({ onUser }: EmailGateProps) {
   };
 
   return (
-    // Full-screen backdrop
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#080D1A]/95 backdrop-blur-sm px-4">
       <div className="w-full max-w-md">
-        {/* Card */}
         <div className="rounded-2xl border border-[#2A3558] bg-[#0F1629] overflow-hidden shadow-2xl">
-          {/* Free launch banner */}
-          <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[#2A3558] px-6 py-3 text-center">
-            <p className="text-xs font-semibold text-blue-300">
-              🚀 Free Early Access — CV Rewrite & Cover Letters free until 29 July 2026
-            </p>
-          </div>
+          {/* Gift banner — only shown when arriving via a gift link */}
+          {hasGift ? (
+            <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-b border-green-500/30 px-6 py-3 text-center">
+              <p className="text-xs font-semibold text-green-300">
+                🎁 You've been gifted {gift} tokens — sign up below to claim them!
+              </p>
+            </div>
+          ) : (
+            <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[#2A3558] px-6 py-3 text-center">
+              <p className="text-xs font-semibold text-blue-300">
+                🚀 Free Early Access — CV Rewrite &amp; Cover Letters free until 29 July 2026
+              </p>
+            </div>
+          )}
 
           <div className="p-8">
             {/* Logo + heading */}
@@ -77,7 +98,9 @@ export function EmailGate({ onUser }: EmailGateProps) {
                 Score your CV for free
               </h1>
               <p className="text-sm text-[#8895B3] leading-relaxed max-w-xs">
-                Enter your details to get your score, AI rewrite, and 3 tailored cover letters — all free right now.
+                {hasGift
+                  ? `Your friend gifted you ${gift} tokens — plus your free welcome tokens. Sign up to start.`
+                  : "Enter your details to get your score, AI rewrite, and 3 tailored cover letters — all free right now."}
               </p>
             </div>
 
@@ -140,7 +163,7 @@ export function EmailGate({ onUser }: EmailGateProps) {
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Getting started...
                   </span>
-                ) : "Get my free score →"}
+                ) : hasGift ? `Claim my ${gift} gifted tokens →` : "Get my free score →"}
               </Button>
             </form>
 
