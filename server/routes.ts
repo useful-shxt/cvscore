@@ -271,9 +271,6 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   app.get("/api/user/balance/:userId", generalLimiter, async (req, res) => {
     try {
       const { userId } = req.params;
-      const requestingUserId = req.query.userId as string | undefined;
-      if (!requestingUserId || requestingUserId !== userId)
-        return res.status(403).json({ error: "Forbidden" });
 
       const { data } = await supabase
         .from("users")
