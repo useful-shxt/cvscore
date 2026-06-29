@@ -20,7 +20,9 @@ export function BundleCards({ bundles, isEarlyAdopter, earlyAdopterSlotsAvailabl
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {bundles.map((bundle, i) => {
           const isPopular = i === 1;
-          const price = showEarlyPrice ? bundle.earlyGbp : bundle.normalGbp;
+          const earlyGbp = bundle.earlyGbp ?? 0;
+          const normalGbp = bundle.normalGbp ?? 0;
+          const price = showEarlyPrice ? earlyGbp : normalGbp;
           return (
             <div
               key={bundle.id}
@@ -40,8 +42,8 @@ export function BundleCards({ bundles, isEarlyAdopter, earlyAdopterSlotsAvailabl
               <p className="text-[10px] text-[#8895B3]">tokens</p>
               <div>
                 <p className="text-base font-bold text-white">£{price.toFixed(2)}</p>
-                {showEarlyPrice && bundle.earlyGbp < bundle.normalGbp && (
-                  <p className="text-[10px] text-[#8895B3] line-through">£{bundle.normalGbp.toFixed(2)}</p>
+                {showEarlyPrice && earlyGbp < normalGbp && (
+                  <p className="text-[10px] text-[#8895B3] line-through">£{normalGbp.toFixed(2)}</p>
                 )}
               </div>
               <button
