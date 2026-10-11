@@ -1,109 +1,78 @@
-import { Switch, Route, Router, Link, useLocation } from "wouter";
-import { useHashLocation } from "wouter/use-hash-location";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
-import { Toaster } from "@/components/ui/toaster";
-import PlatformHome from "@/pages/platform-home";
-import Home from "@/pages/home";
-import FitPlan from "@/pages/fitplan";
-import NotFound from "@/pages/not-found";
+/**
+ * client/src/App.tsx
+ *
+ * The CVScore website has been retired. This is a single static holding page —
+ * no router, no forms, no email capture, no API calls.
+ * CVScore is being rebuilt as a Claude (MCP) connector.
+ */
 
-// ─── Platform nav ──────────────────────────────────────────────────────────────
-function PlatformNav() {
-  const [location] = useLocation();
-
-  const navItems = [
-    { path: "/cvscore", label: "CVScore", emoji: "📄" },
-    { path: "/fitplan", label: "FitPlan", emoji: "💪" },
-  ];
-
-  return (
-    <nav
-      style={{
-        borderBottom: "1px solid #2A3558",
-        background: "#080D1A",
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-      }}
-    >
-      <div
-        style={{
-          maxWidth: "960px",
-          margin: "0 auto",
-          padding: "0 20px",
-          height: "52px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Link href="/">
-          <a style={{ textDecoration: "none" }}>
-            <span
-              style={{
-                fontFamily: "Sora, sans-serif",
-                fontWeight: 800,
-                fontSize: "17px",
-                color: "#F0F4FF",
-                letterSpacing: "-0.01em",
-              }}
-            >
-              useful<span style={{ color: "#60A5FA" }}>shxt</span>
-            </span>
-          </a>
-        </Link>
-
-        <div style={{ display: "flex", gap: "4px" }}>
-          {navItems.map((item) => {
-            const isActive = location === item.path || (item.path === "/cvscore" && location === "/");
-            return (
-              <Link key={item.path} href={item.path}>
-                <a
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "5px",
-                    padding: "6px 14px",
-                    borderRadius: "8px",
-                    textDecoration: "none",
-                    fontSize: "13px",
-                    fontWeight: 600,
-                    transition: "all 0.15s",
-                    color: isActive ? "#F0F4FF" : "#8895B3",
-                    background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
-                    border: isActive
-                      ? "1px solid rgba(255,255,255,0.1)"
-                      : "1px solid transparent",
-                  }}
-                >
-                  <span>{item.emoji}</span>
-                  <span>{item.label}</span>
-                </a>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-    </nav>
-  );
-}
-
-// ─── App ───────────────────────────────────────────────────────────────────────
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <Router hook={useHashLocation}>
-        <PlatformNav />
-        <Switch>
-          <Route path="/" component={PlatformHome} />
-          <Route path="/cvscore" component={Home} />
-          <Route path="/fitplan" component={FitPlan} />
-          <Route component={NotFound} />
-        </Switch>
-      </Router>
-      <Toaster />
-    </QueryClientProvider>
+    <div
+      style={{
+        background: "#080D1A",
+        minHeight: "100vh",
+        fontFamily: "'Inter', system-ui, sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+      }}
+    >
+      {/* usefulshxt logo */}
+      <div style={{ marginBottom: "32px" }}>
+        <span
+          style={{
+            fontFamily: "Sora, sans-serif",
+            fontWeight: 800,
+            fontSize: "18px",
+            color: "#F0F4FF",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          useful<span style={{ color: "#60A5FA" }}>shxt</span>
+        </span>
+      </div>
+
+      <div
+        style={{
+          background: "#0F1629",
+          border: "1px solid #2A3558",
+          borderRadius: "16px",
+          padding: "48px 40px",
+          maxWidth: "560px",
+          width: "100%",
+          textAlign: "center",
+        }}
+      >
+        <h1
+          style={{
+            fontFamily: "Sora, sans-serif",
+            fontSize: "28px",
+            fontWeight: 800,
+            color: "#F0F4FF",
+            letterSpacing: "-0.02em",
+            lineHeight: 1.25,
+            margin: "0 0 18px",
+          }}
+        >
+          CVScore is moving into Claude
+        </h1>
+
+        <p
+          style={{
+            color: "#8895B3",
+            fontSize: "15px",
+            lineHeight: 1.7,
+            margin: 0,
+          }}
+        >
+          We're rebuilding CVScore as a Claude connector that helps you apply to
+          the right jobs — you pick, you approve every application. Coming soon.
+        </p>
+      </div>
+    </div>
   );
 }
 

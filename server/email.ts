@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import type { FastScoreResult } from "@shared/schema";
+import { WEBSITE_ENABLED } from "./config";
 
 function getResend() {
   const key = process.env.RESEND_API_KEY;
@@ -13,6 +14,11 @@ function getResend() {
 const FROM = process.env.SMTP_FROM || "CVScore <onboarding@resend.dev>";
 
 async function sendEmail(to: string, subject: string, html: string) {
+  // Website retired — all templates below are kept, but nothing is sent.
+  if (!WEBSITE_ENABLED) {
+    console.log(`[email] Suppressed "${subject}" to ${to} — website retired`);
+    return;
+  }
   const resend = getResend();
   if (!resend) return;
   try {

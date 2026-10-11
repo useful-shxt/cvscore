@@ -11,6 +11,7 @@ import { callClaude, callClaudeHaiku, callClaudeSonnet, fetchPageText } from "./
 import supabase from "./supabase";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { parseLinkedInExport } from "./linkedinParser";
+import { WEBSITE_ENABLED } from "./config";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -208,6 +209,29 @@ async function deductTokens(userId: string, tokenCost: number, apiCost: number):
 }
 
 export async function registerRoutes(httpServer: Server, app: Express) {
+  // ── Website retirement gate ─────────────────────────────────────────────────
+  // The CVScore website is retired; the backend is being reused as an MCP
+  // connector. While WEBSITE_ENABLED is false, every /api/* route returns 410
+  // before its handler runs — no AI calls, no DB writes, no emails.
+  //
+  // Only these stay live (they are not website routes and will be reused):
+  //   /api/webhook/stripe — Stripe webhook must keep working
+  //   /api/health         — platform/Railway health check
+  //
+  // Handler code below is deliberately left intact. To re-enable the website,
+  // set WEBSITE_ENABLED=true; this middleware then becomes a no-op.
+  const WEBSITE_GATE_ALLOWLIST = new Set<string>([
+    "/api/webhook/stripe",
+    "/api/health",
+  ]);
+
+  app.use((req, res, next) => {
+    if (WEBSITE_ENABLED) return next();
+    if (!req.path.startsWith("/api/")) return next();
+    if (WEBSITE_GATE_ALLOWLIST.has(req.path)) return next();
+    return res.status(410).json({ error: "CVScore website has been retired" });
+  });
+
   // ── Health ──────────────────────────────────────────────────────────────────
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
