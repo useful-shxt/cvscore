@@ -112,12 +112,6 @@ export async function sendScoreEmail(
       <p style="color:#8895B3;font-size:13px;margin:0;">${result.keywords.missing.slice(0, 6).join(", ")}${result.keywords.missing.length > 6 ? ` +${result.keywords.missing.length - 6} more` : ""}</p>
     </div>
 
-    <!-- Free access banner -->
-    <div style="background:linear-gradient(135deg,#3B82F615,#8B5CF615);border:1px solid #3B82F630;border-radius:12px;padding:20px;margin-bottom:24px;text-align:center;">
-      <p style="color:#F0F4FF;font-size:14px;font-weight:600;margin:0 0 6px;">🚀 Free Early Access — until 29 July 2026</p>
-      <p style="color:#8895B3;font-size:13px;margin:0;">CV Rewrite and Cover Letters are free right now. Go back and generate yours before the launch window closes.</p>
-    </div>
-
     <!-- CTA -->
     <div style="text-align:center;margin-bottom:32px;">
       <a href="${process.env.APP_URL || "https://cvscore.app"}/" style="display:inline-block;background:#3B82F6;color:#fff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">View Full Results &amp; Rewrite</a>
@@ -147,7 +141,7 @@ export async function sendWelcomeEmail(to: string, name: string) {
     </div>
     <p style="color:#F0F4FF;font-size:22px;font-weight:700;margin:0 0 12px;">Welcome to CVScore, ${name} 👋</p>
     <p style="color:#8895B3;font-size:14px;line-height:1.7;margin:0 0 24px;">
-      You've just unlocked free access to AI-powered CV scoring, company intel, LinkedIn analysis, and full CV rewrites — all free until <strong style="color:#F0F4FF;">29 July 2026</strong>.
+      Your account is ready — start by scoring your CV against a job you want.
     </p>
     <div style="background:#0F1629;border:1px solid #2A3558;border-radius:16px;padding:24px;margin-bottom:20px;">
       <p style="color:#A8B8D0;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 14px;">What you can do right now</p>
@@ -170,16 +164,12 @@ export async function sendWelcomeEmail(to: string, name: string) {
     <div style="text-align:center;margin-bottom:28px;">
       <a href="${process.env.APP_URL || "https://cvscore.usefulshxt.com"}" style="display:inline-block;background:#3B82F6;color:#fff;font-size:14px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Start Scoring My CV</a>
     </div>
-    <div style="background:#10B98110;border:1px solid #10B98130;border-radius:12px;padding:16px;margin-bottom:24px;text-align:center;">
-      <p style="color:#10B981;font-size:13px;font-weight:600;margin:0 0 4px;">🎉 Free early access window open</p>
-      <p style="color:#8895B3;font-size:12px;margin:0;">Everything is free until 29 July 2026. No credit card needed.</p>
-    </div>
     <p style="color:#8895B3;font-size:11px;text-align:center;margin:0;">You're receiving this because you signed up to CVScore. <a href="#" style="color:#3B82F6;">Unsubscribe</a></p>
   </div>
 </body>
 </html>`;
 
-  await sendEmail(to, `Welcome to CVScore, ${name} — your free access is live`, html);
+  await sendEmail(to, `Welcome to CVScore, ${name} — your account is ready`, html);
 }
 
 // ─── Re-engagement: rewrite ready ─────────────────────────────────────────────
