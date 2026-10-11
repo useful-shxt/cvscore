@@ -255,6 +255,13 @@ export async function sendPersonalisedWeeklyNudge(to: string, data: WeeklyNudgeD
   const label = scoreLabel(data.score);
   const appUrl = process.env.APP_URL || "https://cvscore.usefulshxt.com";
 
+  // Real current date at send time — e.g. "11 October 2026"
+  const currentDate = new Date().toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
   // Personalised subject line based on score band
   let subject: string;
   if (data.score >= 75) {
@@ -340,7 +347,7 @@ export async function sendPersonalisedWeeklyNudge(to: string, data: WeeklyNudgeD
 
     <!-- Free access banner -->
     <div style="background:linear-gradient(135deg,#10B98110,#3B82F610);border:1px solid #10B98125;border-radius:12px;padding:16px;margin-bottom:24px;text-align:center;">
-      <p style="color:#10B981;font-size:13px;font-weight:600;margin:0 0 4px;">⏳ Free access closes 29 July 2026</p>
+      <p style="color:#10B981;font-size:13px;font-weight:600;margin:0 0 4px;">⏳ Free access closes ${currentDate}</p>
       <p style="color:#8895B3;font-size:12px;margin:0;">CV Rewrite, Cover Letters and LinkedIn Analysis are all free right now. Get them before the window closes.</p>
     </div>
 

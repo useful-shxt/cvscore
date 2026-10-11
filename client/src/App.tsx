@@ -5,7 +5,6 @@ import { queryClient } from "@/lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import PlatformHome from "@/pages/platform-home";
 import Home from "@/pages/home";
-import Predict from "@/pages/predict";
 import FitPlan from "@/pages/fitplan";
 import NotFound from "@/pages/not-found";
 
@@ -15,7 +14,6 @@ function PlatformNav() {
 
   const navItems = [
     { path: "/cvscore", label: "CVScore", emoji: "📄" },
-    { path: "/predict", label: "Predict", emoji: "⚽" },
     { path: "/fitplan", label: "FitPlan", emoji: "💪" },
   ];
 
@@ -100,7 +98,6 @@ function App() {
         <Switch>
           <Route path="/" component={PlatformHome} />
           <Route path="/cvscore" component={Home} />
-          <Route path="/predict" component={Predict} />
           <Route path="/fitplan" component={FitPlan} />
           <Route component={NotFound} />
         </Switch>

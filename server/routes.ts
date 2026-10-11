@@ -1198,7 +1198,9 @@ Return:
   "competitiveInsights": "<Who else is in the room — strong candidates for this role — how this CV compares honestly>"
 }`;
 
+      const deepAiStart = Date.now();
       const raw = await callClaudeSonnet(prompt, "You are an expert CV and career analyst. Return valid JSON only. Never invent experience or qualifications not present in the provided CV.");
+      console.log(`[/api/score/deep] AI call took ${Date.now() - deepAiStart}ms`);
 
       const parsed = JSON.parse(extractJSON(raw));
 
@@ -1253,10 +1255,12 @@ Return this exact JSON:
   "extras": ["<certification or notable item>"]
 }`;
 
+      const rewriteAiStart = Date.now();
       const rewriteRaw = await callPerplexity("sonar-pro", [
         { role: "system", content: "You are an expert CV writer. Return valid JSON only." },
         { role: "user", content: prompt },
       ]);
+      console.log(`[/api/rewrite] AI call took ${Date.now() - rewriteAiStart}ms`);
 
       const rewrite = JSON.parse(extractJSON(rewriteRaw));
 
@@ -1337,7 +1341,9 @@ Return exactly:
   ]
 }`;
 
+      const coverAiStart = Date.now();
       const raw = await callClaudeSonnet(prompt, "You are an expert CV and career analyst. Return valid JSON only. Never invent experience or qualifications not present in the provided CV.");
+      console.log(`[/api/cover-letters] AI call took ${Date.now() - coverAiStart}ms`);
 
       let jsonStr = extractJSON(raw);
       jsonStr = jsonStr.replace(/,(\s*[}\]])/g, "$1");
@@ -1431,7 +1437,7 @@ Return exactly:
 
   const TOKEN_COSTS: Record<string, number> = {
     cv_score: 2, cv_rewrite: 8, cover_letter: 5, interview_prep: 6,
-    linkedin: 10, linkedin_export: 10, salary: 5, predict: 3, fitplan: 15, jd_fetch: 1, jd_extract: 1,
+    linkedin: 10, linkedin_export: 10, salary: 5, fitplan: 15, jd_fetch: 1, jd_extract: 1,
   };
 
   async function logToken(email: string | undefined, action: string) {
@@ -2043,147 +2049,6 @@ ${p.keyTips.map((t: string, i: number) => `<li><span class="tip-num">${i + 1}.</
       res.send(html);
     } catch (err: any) {
       console.error("FitPlan export error:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ── Predict ───────────────────────────────────────────────────────────────────
-  app.get("/api/predict/:sport", generalLimiter, async (req, res) => {
-    try {
-      const sport = req.params.sport;
-      const validSports = ["worldcup", "premier_league", "ipl"];
-      if (!validSports.includes(sport))
-        return res.status(400).json({ error: "Invalid sport" });
-
-      const today = new Date().toISOString().split("T")[0];
-
-      // Check Supabase cache — one prediction per sport per day
-      const { data: cached } = await supabase
-        .from("predictions")
-        .select("*")
-        .eq("sport", sport)
-        .eq("match_date", today)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (cached && cached.length > 0) {
-        const c = cached[0];
-        return res.json({
-          match: { homeTeam: c.home_team, awayTeam: c.away_team, matchDate: c.match_date, competition: c.competition, venue: c.venue, kickoff: c.kickoff },
-          prediction: { pick: c.pick, pickDescription: c.pick_description, confidence: c.confidence, reasoning: c.reasoning, keyFactors: JSON.parse(c.key_factors || "[]"), matchContext: c.match_context, riskNote: c.risk_note, alternativeAngle: c.alternative_angle, sport, predictionId: c.id },
-          fromCache: true,
-        });
-      }
-
-      const sportLabel = sport === "worldcup" ? "2026 FIFA World Cup" : sport === "premier_league" ? "English Premier League 2024/25" : "Indian Premier League 2025";
-
-      // Step 1: Haiku — get today's fixtures
-      const fixtureRaw = await callClaudeHaiku(
-        `What ${sportLabel} matches are scheduled for ${today} or the next 24 hours? List up to 3. Return ONLY valid JSON: {"matches":[{"homeTeam":"<team>","awayTeam":"<team>","matchDate":"${today}","competition":"${sportLabel}","venue":"<venue>","kickoff":"<time>"}]} If none, return {"matches":[]}`,
-        "You are a sports data expert. Return valid JSON only."
-      );
-      const fixtures = JSON.parse(extractJSON(fixtureRaw));
-      const matches = fixtures.matches || [];
-
-      if (!matches.length)
-        return res.json({ prediction: null, message: "No matches scheduled in the next 24 hours." });
-
-      const match = matches[0];
-
-      // Step 2: Sonnet — deep prediction
-      const predRaw = await callClaudeSonnet(
-        `You are the world's most respected sports analyst making your single highest-conviction prediction.
-
-MATCH: ${match.homeTeam} vs ${match.awayTeam}
-COMPETITION: ${match.competition}
-DATE: ${match.matchDate}
-VENUE: ${match.venue || "TBC"}
-
-Analyse: current form (last 5), head-to-head, key injuries, tactical matchup, pressure/stakes. Make ONE decisive pick.
-
-Return ONLY valid JSON:
-{
-  "pick": "<exact team name or Draw>",
-  "pickDescription": "<e.g. England to win or Under 2.5 goals>",
-  "confidence": <60-95>,
-  "reasoning": "<3-4 sentences specific evidence>",
-  "keyFactors": ["<specific factor with data>","<factor>","<factor>"],
-  "matchContext": "<1-2 sentences on what this match means>",
-  "riskNote": "<honest risk>",
-  "alternativeAngle": "<if you had to bet the other side>"
-}`,
-        "You are the world's most respected sports analyst. Be specific. Evidence-based. Decisive. Return valid JSON only."
-      );
-      const pred = JSON.parse(extractJSON(predRaw));
-
-      // Store in Supabase
-      const predId = nanoid();
-      await supabase.from("predictions").insert({
-        id: predId, sport,
-        home_team: match.homeTeam, away_team: match.awayTeam,
-        match_date: match.matchDate, competition: match.competition,
-        venue: match.venue || null, kickoff: match.kickoff || null,
-        pick: pred.pick, pick_description: pred.pickDescription,
-        confidence: pred.confidence, reasoning: pred.reasoning,
-        key_factors: JSON.stringify(pred.keyFactors),
-        match_context: pred.matchContext, risk_note: pred.riskNote,
-        alternative_angle: pred.alternativeAngle,
-        created_at: new Date().toISOString(),
-      });
-
-      res.json({
-        match: { homeTeam: match.homeTeam, awayTeam: match.awayTeam, matchDate: match.matchDate, competition: match.competition, venue: match.venue, kickoff: match.kickoff },
-        prediction: { ...pred, sport, predictionId: predId },
-        otherMatches: matches.slice(1).map((m: any) => ({ homeTeam: m.homeTeam, awayTeam: m.awayTeam, kickoff: m.kickoff })),
-        fromCache: false,
-      });
-    } catch (err: any) {
-      console.error("Predict error:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ── Pick logging ──────────────────────────────────────────────────────────────
-  app.post("/api/predict/pick", generalLimiter, async (req, res) => {
-    try {
-      const { email, predictionId, sport, homeTeam, awayTeam, matchDate, userPick, claudePick, claudeConfidence } = req.body;
-      if (!email || !userPick || !claudePick)
-        return res.status(400).json({ error: "email, userPick, and claudePick required" });
-
-      await supabase.from("user_picks").insert({
-        id: nanoid(), email,
-        prediction_id: predictionId || "",
-        sport: sport || "unknown",
-        home_team: homeTeam || "", away_team: awayTeam || "",
-        match_date: matchDate || new Date().toISOString().split("T")[0],
-        user_pick: userPick, claude_pick: claudePick,
-        claude_confidence: claudeConfidence || 0,
-        created_at: new Date().toISOString(),
-      });
-      res.json({ ok: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Accuracy stats
-  app.get("/api/predict/accuracy", generalLimiter, async (req, res) => {
-    try {
-      const { data: picks } = await supabase
-        .from("user_picks")
-        .select("claude_outcome, user_outcome")
-        .neq("claude_outcome", "pending");
-
-      const total = (picks || []).length;
-      const claudeCorrect = (picks || []).filter((p: any) => p.claude_outcome === "correct").length;
-      const userCorrect = (picks || []).filter((p: any) => p.user_outcome === "correct").length;
-
-      res.json({
-        claudeAccuracy: total ? Math.round((claudeCorrect / total) * 100) : null,
-        userAccuracy: total ? Math.round((userCorrect / total) * 100) : null,
-        totalPredictions: total,
-      });
-    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });

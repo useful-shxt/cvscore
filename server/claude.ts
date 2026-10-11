@@ -1,7 +1,7 @@
 /**
  * server/claude.ts — ADD as new file
  * Claude Sonnet/Haiku API helper
- * Used by: LinkedIn screenshot, Predict, FitPlan, CV differential
+ * Used by: LinkedIn screenshot, FitPlan, CV differential
  */
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
