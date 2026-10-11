@@ -1915,8 +1915,19 @@ ${deep?.competitiveInsights ? `<div class="sec"><div class="sec-title">Competiti
     }
   });
 
+  // ── FitPlan — temporarily disabled ────────────────────────────────────────────
+  // All /api/fitplan/* routes short-circuit with 503 while FitPlan is "Coming Soon".
+  // To re-enable: set FITPLAN_ENABLED to true. The handler code below is untouched.
+  const FITPLAN_ENABLED = false;
+  function fitplanDisabled(res: any): boolean {
+    if (FITPLAN_ENABLED) return false;
+    res.status(503).json({ error: "FitPlan is coming soon" });
+    return true;
+  }
+
   // ── FitPlan PDF export ────────────────────────────────────────────────────────
   app.post("/api/fitplan/export", generalLimiter, async (req, res) => {
+    if (fitplanDisabled(res)) return;
     try {
       const { plan, targets, intake, candidateName } = req.body;
       if (!plan) return res.status(400).json({ error: "plan required" });
@@ -2055,6 +2066,7 @@ ${p.keyTips.map((t: string, i: number) => `<li><span class="tip-num">${i + 1}.</
 
   // ── FitPlan generate ──────────────────────────────────────────────────────────
   app.post("/api/fitplan/generate", async (req, res) => {
+    if (fitplanDisabled(res)) return;
     try {
       const { goal, ageYears, heightCm, weightKg, targetWeightKg, activityLevel, trainingDaysPerWeek, equipment, dietaryRestrictions, healthNotes, email } = req.body;
       if (!goal || !ageYears || !heightCm || !weightKg || !activityLevel || !trainingDaysPerWeek || !equipment)
@@ -2150,6 +2162,7 @@ CRITICAL: All 7 days in weeklyMeals. Exactly ${trainingDaysPerWeek} training day
 
   // ── FitPlan regenerate single day ─────────────────────────────────────────────
   app.post("/api/fitplan/regenerate-day", async (req, res) => {
+    if (fitplanDisabled(res)) return;
     try {
       const { day, targetCalories, proteinG, dietaryRestrictions } = req.body;
       if (!day || !targetCalories) return res.status(400).json({ error: "day and targetCalories required" });
